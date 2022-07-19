@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.3.0 (2022-07-19)
+### Feature
+* Set manufacturer ([#7](https://github.com/Bluetooth-Devices/inkbird-ble/issues/7)) ([`d0ba693`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/d0ba693652a083f208423aca6fd7a2e6742cff2a))
+
 ## v0.2.4 (2022-07-19)
 ### Fix
 * Add guards to avoid matching unexpected devices ([#6](https://github.com/Bluetooth-Devices/inkbird-ble/issues/6)) ([`3a47dd7`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/3a47dd7ba3b9da547b5f7c1f32fcafae0bb9cee9))
