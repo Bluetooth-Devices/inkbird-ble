@@ -23,6 +23,11 @@ BBQ_LENGTH_TO_TYPE = {
     20: ("iBBQ-6", "<hhhhhh"),
 }
 
+INKBIRD_NAMES = {
+    "sps": "IBS-TH",
+    "tps": "IBS-TH2/P01B",
+}
+
 
 def convert_temperature(temp: float) -> float:
     """Temperature converter."""
@@ -39,10 +44,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
         manufacturer_data = service_info.manufacturer_data
         local_name = service_info.name
-        if local_name == "sps":
-            self.set_device_type("IBS-TH")
-        elif local_name == "tps":
-            self.set_device_type("IBS-TH2/P01B")
+        if device_type := INKBIRD_NAMES.get(local_name):
+            self.set_device_type(device_type)
         if not manufacturer_data:
             return
         last_id = list(manufacturer_data)[-1]
@@ -54,7 +57,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
         msg_length = len(data)
 
-        if msg_length == 9:
+        if complete_local_name in INKBIRD_NAMES and msg_length == 9:
             (temp, hum) = unpack("<hH", data[0:4])
             bat = int.from_bytes(data[7:8], "little")
             if complete_local_name == "sps":
@@ -66,7 +69,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 self.update_predefined_sensor(SensorLibrary.BATTERY, bat)
             return
 
-        if bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length):
+        if "ibbq" in complete_local_name.lower() and (
+            bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length)
+        ):
             # TODO: do we need the source mac check here?
             # Apple devices have a UUID in the advertisement data
             dev_type, unpack_str = bbq_data
