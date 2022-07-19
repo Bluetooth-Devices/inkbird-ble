@@ -74,7 +74,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             xvalue = data[8:]
             for idx, temp in enumerate(unpack(unpack_str, xvalue)):
                 num = idx + 1
-                self.update_sensor(
+                self.update_predefined_sensor(
                     SensorLibrary.TEMPERATURE,
                     convert_temperature(temp),
                     key=f"temperature_probe_{num}",
