@@ -50,6 +50,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             return
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
+        self.set_device_manufacturer("INKBIRD")
         self._process_update(service_info.name, data)
 
     def _process_update(self, complete_local_name: str, data: bytes) -> None:
