@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.4.0 (2022-07-20)
+### Feature
+* Export SensorDescription and SensorValue ([#11](https://github.com/Bluetooth-Devices/inkbird-ble/issues/11)) ([`d362302`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/d362302b9f707abde4a4280422788010c01ff437))
+
 ## v0.3.2 (2022-07-20)
 ### Fix
 * Test names ([#10](https://github.com/Bluetooth-Devices/inkbird-ble/issues/10)) ([`1379ea8`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/1379ea837ad5d80f885170d1545a64a057d2663c))

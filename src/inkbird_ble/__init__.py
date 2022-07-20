@@ -20,7 +20,7 @@ from sensor_state_data.data import (
 
 from .parser import INKBIRDBluetoothDeviceData
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 __all__ = [
     "INKBIRDBluetoothDeviceData",
