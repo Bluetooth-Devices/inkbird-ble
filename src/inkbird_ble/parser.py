@@ -17,10 +17,10 @@ from sensor_state_data import SensorLibrary
 _LOGGER = logging.getLogger(__name__)
 
 BBQ_LENGTH_TO_TYPE = {
-    10: ("iBBQ-1", "<h"),
-    12: ("iBBQ-2", "<HH"),
-    16: ("iBBQ-4", "<hhhh"),
-    20: ("iBBQ-6", "<hhhhhh"),
+    12: ("iBBQ-1", "<h"),
+    14: ("iBBQ-2", "<HH"),
+    18: ("iBBQ-4", "<hhhh"),
+    22: ("iBBQ-6", "<hhhhhh"),
 }
 
 INKBIRD_NAMES = {
@@ -36,6 +36,14 @@ def convert_temperature(temp: float) -> float:
     return 0
 
 
+def short_address(address: str) -> str:
+    """Convert a Bluetooth address to a short address."""
+    results = address.replace("-", ":").split(":")
+    if len(results[-1]) == 2:
+        return f"{results[-2].upper()}{results[-1].upper()}"
+    return results[-1].upper()
+
+
 class INKBIRDBluetoothDeviceData(BluetoothData):
     """Date update for INKBIRD Bluetooth devices."""
 
@@ -43,41 +51,39 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
         manufacturer_data = service_info.manufacturer_data
-        local_name = service_info.name
-        if device_type := INKBIRD_NAMES.get(local_name):
-            self.set_device_type(device_type)
         if not manufacturer_data:
             return
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
         self.set_device_manufacturer("INKBIRD")
-        self._process_update(service_info.name, data)
+        self._process_update(service_info.name, service_info.address, data)
 
-    def _process_update(self, complete_local_name: str, data: bytes) -> None:
+    def _process_update(self, local_name: str, address: str, data: bytes) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
         msg_length = len(data)
 
-        if complete_local_name in INKBIRD_NAMES and msg_length == 9:
+        if (device_type := INKBIRD_NAMES.get(local_name)) and msg_length == 9:
+            self.set_device_type(device_type)
+            self.set_device_name(f"{device_type} {short_address(address)}")
             (temp, hum) = unpack("<hH", data[0:4])
             bat = int.from_bytes(data[7:8], "little")
-            if complete_local_name == "sps":
+            if local_name == "sps":
                 self.update_predefined_sensor(SensorLibrary.TEMPERATURE, temp / 100)
                 self.update_predefined_sensor(SensorLibrary.HUMIDITY, hum / 100)
                 self.update_predefined_sensor(SensorLibrary.BATTERY, bat)
-            elif complete_local_name == "tps":
+            elif local_name == "tps":
                 self.update_predefined_sensor(SensorLibrary.TEMPERATURE, temp / 100)
                 self.update_predefined_sensor(SensorLibrary.BATTERY, bat)
             return
 
-        if "ibbq" in complete_local_name.lower() and (
+        if "ibbq" in local_name.lower() and (
             bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length)
         ):
-            # TODO: do we need the source mac check here?
-            # Apple devices have a UUID in the advertisement data
             dev_type, unpack_str = bbq_data
+            self.set_device_name(f"{local_name} {short_address(address)}")
             self.set_device_type(dev_type)
-            xvalue = data[8:]
+            xvalue = data[10:]
             for idx, temp in enumerate(unpack(unpack_str, xvalue)):
                 num = idx + 1
                 self.update_predefined_sensor(
