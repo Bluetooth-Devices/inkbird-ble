@@ -2,6 +2,11 @@
 
 <!--next-version-placeholder-->
 
+## v0.3.2 (2022-07-20)
+### Fix
+* Test names ([#10](https://github.com/Bluetooth-Devices/inkbird-ble/issues/10)) ([`1379ea8`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/1379ea837ad5d80f885170d1545a64a057d2663c))
+* Bump deps ([#9](https://github.com/Bluetooth-Devices/inkbird-ble/issues/9)) ([`714cb68`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/714cb686f25ee4cd647ec1aafff774a8b47522f3))
+
 ## v0.3.1 (2022-07-20)
 ### Fix
 * IBBQ parser ([#8](https://github.com/Bluetooth-Devices/inkbird-ble/issues/8)) ([`1844d9f`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/1844d9fa659349685265e77ba079a87d68c4c6a0))
