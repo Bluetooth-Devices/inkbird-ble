@@ -20,9 +20,6 @@ def test_sps():
         source="local",
     )
     result = parser.update(service_info)
-    import pprint
-
-    pprint.pprint(result)
     assert result == SensorUpdate(
         title=None,
         devices={
@@ -31,25 +28,25 @@ def test_sps():
         entity_descriptions={
             DeviceKey(key="battery", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="battery", device_id=None),
-                name="IBS-TH " "EEFF " "Battery",
+                name="Battery",
                 device_class=DeviceClass.BATTERY,
                 native_unit_of_measurement="%",
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="IBS-TH " "EEFF " "Signal_Strength",
+                name="Signal Strength",
                 device_class=DeviceClass.SIGNAL_STRENGTH,
                 native_unit_of_measurement="dBm",
             ),
             DeviceKey(key="temperature", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="temperature", device_id=None),
-                name="IBS-TH " "EEFF " "Temperature",
+                name="Temperature",
                 device_class=DeviceClass.TEMPERATURE,
                 native_unit_of_measurement="°C",
             ),
             DeviceKey(key="humidity", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="humidity", device_id=None),
-                name="IBS-TH " "EEFF " "Humidity",
+                name="Humidity",
                 device_class=DeviceClass.HUMIDITY,
                 native_unit_of_measurement="%",
             ),
@@ -95,7 +92,7 @@ def test_ibbq_4():
         entity_descriptions={
             DeviceKey(key="signal_strength", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="iBBQ " "EEFF " "Signal_Strength",
+                name="Signal Strength",
                 device_class=DeviceClass.SIGNAL_STRENGTH,
                 native_unit_of_measurement="dBm",
             ),
