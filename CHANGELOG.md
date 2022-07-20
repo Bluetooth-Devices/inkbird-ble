@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.3.1 (2022-07-20)
+### Fix
+* IBBQ parser ([#8](https://github.com/Bluetooth-Devices/inkbird-ble/issues/8)) ([`1844d9f`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/1844d9fa659349685265e77ba079a87d68c4c6a0))
+
 ## v0.3.0 (2022-07-19)
 ### Feature
 * Set manufacturer ([#7](https://github.com/Bluetooth-Devices/inkbird-ble/issues/7)) ([`d0ba693`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/d0ba693652a083f208423aca6fd7a2e6742cff2a))
