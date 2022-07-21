@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.5.0 (2022-07-21)
+### Feature
+* Refactor for sensor-state-data 2 ([#12](https://github.com/Bluetooth-Devices/inkbird-ble/issues/12)) ([`02d7ca1`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/02d7ca1435e3aa98b7c46f7cf6bbbf9285330973))
+
 ## v0.4.0 (2022-07-20)
 ### Feature
 * Export SensorDescription and SensorValue ([#11](https://github.com/Bluetooth-Devices/inkbird-ble/issues/11)) ([`d362302`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/d362302b9f707abde4a4280422788010c01ff437))
