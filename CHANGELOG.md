@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.5.1 (2022-07-21)
+### Fix
+* Bump sensor-state-data to fix typing ([#13](https://github.com/Bluetooth-Devices/inkbird-ble/issues/13)) ([`e7b1610`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/e7b161063899d34ae665e39ea425beb1db468f84))
+
 ## v0.5.0 (2022-07-21)
 ### Feature
 * Refactor for sensor-state-data 2 ([#12](https://github.com/Bluetooth-Devices/inkbird-ble/issues/12)) ([`02d7ca1`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/02d7ca1435e3aa98b7c46f7cf6bbbf9285330973))
