@@ -69,12 +69,18 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             (temp, hum) = unpack("<hH", data[0:4])
             bat = int.from_bytes(data[7:8], "little")
             if local_name == "sps":
-                self.update_predefined_sensor(SensorLibrary.TEMPERATURE, temp / 100)
-                self.update_predefined_sensor(SensorLibrary.HUMIDITY, hum / 100)
-                self.update_predefined_sensor(SensorLibrary.BATTERY, bat)
+                self.update_predefined_sensor(
+                    SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
+                )
+                self.update_predefined_sensor(
+                    SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
+                )
+                self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
             elif local_name == "tps":
-                self.update_predefined_sensor(SensorLibrary.TEMPERATURE, temp / 100)
-                self.update_predefined_sensor(SensorLibrary.BATTERY, bat)
+                self.update_predefined_sensor(
+                    SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
+                )
+                self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
             return
 
         if "ibbq" in local_name.lower() and (
@@ -87,7 +93,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             for idx, temp in enumerate(unpack(unpack_str, xvalue)):
                 num = idx + 1
                 self.update_predefined_sensor(
-                    SensorLibrary.TEMPERATURE,
+                    SensorLibrary.TEMPERATURE__CELSIUS,
                     convert_temperature(temp),
                     key=f"temperature_probe_{num}",
                     name=f"Temperature Probe {num}",

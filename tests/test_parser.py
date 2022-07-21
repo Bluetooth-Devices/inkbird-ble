@@ -1,5 +1,11 @@
 from bluetooth_sensor_state_data import BluetoothServiceInfo, DeviceClass, SensorUpdate
-from sensor_state_data import DeviceKey, SensorDescription, SensorValue
+from sensor_state_data import (
+    DeviceKey,
+    SensorDescription,
+    SensorDeviceInfo,
+    SensorValue,
+    Units,
+)
 
 from inkbird_ble.parser import INKBIRDBluetoothDeviceData
 
@@ -23,48 +29,56 @@ def test_sps():
     assert result == SensorUpdate(
         title=None,
         devices={
-            None: {"manufacturer": "INKBIRD", "model": "IBS-TH", "name": "IBS-TH EEFF"}
+            None: SensorDeviceInfo(
+                name="IBS-TH EEFF",
+                model="IBS-TH",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
         },
         entity_descriptions={
             DeviceKey(key="battery", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="battery", device_id=None),
-                name="Battery",
                 device_class=DeviceClass.BATTERY,
-                native_unit_of_measurement="%",
+                native_unit_of_measurement=Units.PERCENTAGE,
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="Signal Strength",
                 device_class=DeviceClass.SIGNAL_STRENGTH,
-                native_unit_of_measurement="dBm",
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
             ),
             DeviceKey(key="temperature", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="temperature", device_id=None),
-                name="Temperature",
                 device_class=DeviceClass.TEMPERATURE,
-                native_unit_of_measurement="°C",
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
             ),
             DeviceKey(key="humidity", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="humidity", device_id=None),
-                name="Humidity",
                 device_class=DeviceClass.HUMIDITY,
-                native_unit_of_measurement="%",
+                native_unit_of_measurement=Units.PERCENTAGE,
             ),
         },
         entity_values={
             DeviceKey(key="battery", device_id=None): SensorValue(
-                device_key=DeviceKey(key="battery", device_id=None), native_value=86
+                device_key=DeviceKey(key="battery", device_id=None),
+                native_value=86,
+                name="Battery",
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorValue(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
                 native_value=-60,
             ),
             DeviceKey(key="temperature", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
                 native_value=20.44,
             ),
             DeviceKey(key="humidity", device_id=None): SensorValue(
-                device_key=DeviceKey(key="humidity", device_id=None), native_value=48.07
+                device_key=DeviceKey(key="humidity", device_id=None),
+                native_value=48.07,
+                name="Humidity",
             ),
         },
     )
@@ -87,59 +101,65 @@ def test_ibbq_4():
     assert result == SensorUpdate(
         title=None,
         devices={
-            None: {"manufacturer": "INKBIRD", "model": "iBBQ-4", "name": "iBBQ EEFF"}
+            None: SensorDeviceInfo(
+                name="iBBQ EEFF",
+                model="iBBQ-4",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
         },
         entity_descriptions={
             DeviceKey(key="signal_strength", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="Signal Strength",
                 device_class=DeviceClass.SIGNAL_STRENGTH,
-                native_unit_of_measurement="dBm",
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
             ),
             DeviceKey(key="temperature_probe_1", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="temperature_probe_1", device_id=None),
-                name="Temperature " "Probe " "1",
                 device_class=DeviceClass.TEMPERATURE,
-                native_unit_of_measurement="°C",
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
             ),
             DeviceKey(key="temperature_probe_2", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="temperature_probe_2", device_id=None),
-                name="Temperature " "Probe " "2",
                 device_class=DeviceClass.TEMPERATURE,
-                native_unit_of_measurement="°C",
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
             ),
             DeviceKey(key="temperature_probe_3", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="temperature_probe_3", device_id=None),
-                name="Temperature " "Probe " "3",
                 device_class=DeviceClass.TEMPERATURE,
-                native_unit_of_measurement="°C",
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
             ),
             DeviceKey(key="temperature_probe_4", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="temperature_probe_4", device_id=None),
-                name="Temperature " "Probe " "4",
                 device_class=DeviceClass.TEMPERATURE,
-                native_unit_of_measurement="°C",
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
             ),
         },
         entity_values={
             DeviceKey(key="signal_strength", device_id=None): SensorValue(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
                 native_value=-60,
             ),
             DeviceKey(key="temperature_probe_1", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_1", device_id=None),
+                name="Temperature " "Probe " "1",
                 native_value=26.0,
             ),
             DeviceKey(key="temperature_probe_2", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_2", device_id=None),
+                name="Temperature " "Probe " "2",
                 native_value=25.0,
             ),
             DeviceKey(key="temperature_probe_3", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_3", device_id=None),
+                name="Temperature " "Probe " "3",
                 native_value=26.0,
             ),
             DeviceKey(key="temperature_probe_4", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_4", device_id=None),
+                name="Temperature " "Probe " "4",
                 native_value=25.0,
             ),
         },
