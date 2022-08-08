@@ -62,13 +62,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
         msg_length = len(data)
+        lower_name = local_name.lower()
 
-        if (device_type := INKBIRD_NAMES.get(local_name)) and msg_length == 9:
+        if (device_type := INKBIRD_NAMES.get(lower_name)) and msg_length == 9:
             self.set_device_type(device_type)
             self.set_device_name(f"{device_type} {short_address(address)}")
             (temp, hum) = unpack("<hH", data[0:4])
             bat = int.from_bytes(data[7:8], "little")
-            if local_name == "sps":
+            if lower_name == "sps":
                 self.update_predefined_sensor(
                     SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
                 )
@@ -76,14 +77,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                     SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
                 )
                 self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
-            elif local_name == "tps":
+            elif lower_name == "tps":
                 self.update_predefined_sensor(
                     SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
                 )
                 self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
             return
 
-        if "ibbq" in local_name.lower() and (
+        if ("xbbq" in lower_name or "ibbq" in lower_name) and (
             bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length)
         ):
             dev_type, unpack_str = bbq_data
