@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.5.2 (2022-08-08)
+### Fix
+* Some IBBQ2 identify with xBBQ ([#15](https://github.com/Bluetooth-Devices/inkbird-ble/issues/15)) ([`0ebc14c`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/0ebc14c962ab95f6e76a69194f8bcd0d784345a0))
+
 ## v0.5.1 (2022-07-21)
 ### Fix
 * Bump sensor-state-data to fix typing ([#13](https://github.com/Bluetooth-Devices/inkbird-ble/issues/13)) ([`e7b1610`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/e7b161063899d34ae665e39ea425beb1db468f84))
