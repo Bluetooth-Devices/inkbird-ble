@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.5.5 (2022-08-14)
+### Fix
+* Use new changed_manufacturer_data helper to remove bad data ([#18](https://github.com/Bluetooth-Devices/inkbird-ble/issues/18)) ([`cc4fcb2`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/cc4fcb2f14f3ba468bc634621883a2cb688f9feb))
+
 ## v0.5.4 (2022-08-14)
 ### Fix
 * Parser when there are multiple manufacturer_data fields present ([#17](https://github.com/Bluetooth-Devices/inkbird-ble/issues/17)) ([`a4a9047`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/a4a9047816f22f2703b1109d62cf5c22e2ee09cb))
