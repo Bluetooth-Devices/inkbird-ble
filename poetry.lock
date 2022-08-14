@@ -76,7 +76,7 @@ docs = ["sphinx-rtd-theme (>=1.0,<2.0)", "myst-parser (>=0.18,<0.19)", "Sphinx (
 
 [[package]]
 name = "bluetooth-sensor-state-data"
-version = "1.5.0"
+version = "1.6.0"
 description = "Models for storing and converting Bluetooth Sensor State Data"
 category = "main"
 optional = false
@@ -633,7 +633,7 @@ docs = ["myst-parser", "Sphinx", "sphinx-rtd-theme"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "7a2c369216c1f44166a0e895b1a588e6e143001ed45613a141e1c1bb6365d1bf"
+content-hash = "e5b3b4fc4a022a8d5006385eec68d5bbe70c6f69f7db0377cee6e036070f0928"
 
 [metadata.files]
 alabaster = []

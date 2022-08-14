@@ -30,6 +30,8 @@ INKBIRD_NAMES = {
 }
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
+MANUFACTURER_DATA_ID_EXCLUDES = {2}
+
 
 def convert_temperature(temp: float) -> float:
     """Temperature converter."""
@@ -71,17 +73,17 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
         self.set_device_manufacturer("INKBIRD")
 
-        # Strip out the counter updates
-        if manufacturer_data and 2 in manufacturer_data:
-            manufacturer_data = dict(manufacturer_data)
-            manufacturer_data.pop(2, None)
-            if not manufacturer_data:
-                return
-            last_id = list(manufacturer_data)[-1]
-            data = (
-                int(last_id).to_bytes(2, byteorder="little")
-                + manufacturer_data[last_id]
-            )
+        changed_manufacturer_data = self.changed_manufacturer_data(
+            service_info, MANUFACTURER_DATA_ID_EXCLUDES
+        )
+        if not changed_manufacturer_data:
+            return
+
+        last_id = list(changed_manufacturer_data)[-1]
+        data = (
+            int(last_id).to_bytes(2, byteorder="little")
+            + changed_manufacturer_data[last_id]
+        )
 
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
         msg_length = len(data)
