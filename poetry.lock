@@ -64,6 +64,17 @@ optional = false
 python-versions = "*"
 
 [[package]]
+name = "bluetooth-data-tools"
+version = "0.1.2"
+description = "Tools for converting bluetooth data and packets"
+category = "main"
+optional = false
+python-versions = ">=3.9,<4.0"
+
+[package.extras]
+docs = ["sphinx-rtd-theme (>=1.0,<2.0)", "myst-parser (>=0.18,<0.19)", "Sphinx (>=5.0,<6.0)"]
+
+[[package]]
 name = "bluetooth-sensor-state-data"
 version = "1.5.0"
 description = "Models for storing and converting Bluetooth Sensor State Data"
@@ -622,7 +633,7 @@ docs = ["myst-parser", "Sphinx", "sphinx-rtd-theme"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "b36534afbb3732934dbe92e77313fce885eee86aeee6e595224c7cca2c74c102"
+content-hash = "7a2c369216c1f44166a0e895b1a588e6e143001ed45613a141e1c1bb6365d1bf"
 
 [metadata.files]
 alabaster = []
@@ -631,6 +642,7 @@ attrs = []
 babel = []
 bleak = []
 bleak-winrt = []
+bluetooth-data-tools = []
 bluetooth-sensor-state-data = []
 certifi = []
 charset-normalizer = []
