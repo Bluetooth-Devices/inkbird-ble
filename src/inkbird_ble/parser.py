@@ -56,9 +56,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
         self.set_device_manufacturer("INKBIRD")
-        self._process_update(service_info.name, service_info.address, data)
+        self._process_update(service_info.name, service_info.address, data, last_id)
 
-    def _process_update(self, local_name: str, address: str, data: bytes) -> None:
+    def _process_update(
+        self, local_name: str, address: str, data: bytes, mfr_data_id: int
+    ) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
         msg_length = len(data)
@@ -84,12 +86,15 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
             return
 
-        if ("xbbq" in lower_name or "ibbq" in lower_name) and (
-            bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length)
+        if (
+            ("xbbq" in lower_name or "ibbq" in lower_name)
+            and (bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length))
+            and mfr_data_id != 2
         ):
             dev_type, unpack_str = bbq_data
+            # Some are iBBQ, some are xBBQ
             self.set_device_name(f"{local_name} {short_address(address)}")
-            self.set_device_type(dev_type)
+            self.set_device_type(f"{lower_name[0]}{dev_type[1:]}")
             xvalue = data[10:]
             for idx, temp in enumerate(unpack(unpack_str, xvalue)):
                 num = idx + 1
