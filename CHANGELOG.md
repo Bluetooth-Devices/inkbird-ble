@@ -2,6 +2,10 @@
 
 <!--next-version-placeholder-->
 
+## v0.5.4 (2022-08-14)
+### Fix
+* Parser when there are multiple manufacturer_data fields present ([#17](https://github.com/Bluetooth-Devices/inkbird-ble/issues/17)) ([`a4a9047`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/a4a9047816f22f2703b1109d62cf5c22e2ee09cb))
+
 ## v0.5.3 (2022-08-14)
 ### Fix
 * Xbbq2 bad data ([#16](https://github.com/Bluetooth-Devices/inkbird-ble/issues/16)) ([`76b44d5`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/76b44d5bffd36750e8316a70dc27e4148c415687))

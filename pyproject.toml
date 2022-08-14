@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "inkbird-ble"
-version = "0.5.3"
+version = "0.5.4"
 description = "Parser for INKBIRD BLE devices"
 authors = ["J. Nick Koston <nick@koston.org>"]
 license = "MIT"
