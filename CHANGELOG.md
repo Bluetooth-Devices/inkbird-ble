@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.5.6 (2023-02-06)
+### Fix
+* Bump python-semantic-release ([#21](https://github.com/Bluetooth-Devices/inkbird-ble/issues/21)) ([`64d17d7`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/64d17d7d90a49f882143cc3fb079cfa6ef488bcb))
+* Account for switching adapter when finding changed_manufacturer_data ([#20](https://github.com/Bluetooth-Devices/inkbird-ble/issues/20)) ([`37400d0`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/37400d0a65fe3ff347ffb554fd0da4f8b78a187f))
+* Update isort to fix CI ([#19](https://github.com/Bluetooth-Devices/inkbird-ble/issues/19)) ([`174b482`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/174b4825397add3b5f878d63e44aa108b3556b7e))
+
 ## v0.5.5 (2022-08-14)
 ### Fix
 * Use new changed_manufacturer_data helper to remove bad data ([#18](https://github.com/Bluetooth-Devices/inkbird-ble/issues/18)) ([`cc4fcb2`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/cc4fcb2f14f3ba468bc634621883a2cb688f9feb))
