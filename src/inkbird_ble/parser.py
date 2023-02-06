@@ -76,7 +76,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         changed_manufacturer_data = self.changed_manufacturer_data(
             service_info, MANUFACTURER_DATA_ID_EXCLUDES
         )
-        if not changed_manufacturer_data:
+        if not changed_manufacturer_data or len(changed_manufacturer_data) > 1:
+            # If len(changed_manufacturer_data) > 1 it means we switched
+            # ble adapters so we do not know which data is the latest
+            # and we need to wait for the next update.
             return
 
         last_id = list(changed_manufacturer_data)[-1]
