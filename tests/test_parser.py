@@ -132,6 +132,83 @@ def test_sps_variant():
     assert parser.supported(service_info) is True
 
 
+def test_sps_variant2():
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = BluetoothServiceInfo(
+        name="sps",
+        manufacturer_data={
+            2363: b"\xd0\x13\x00\xce\x90d\x06",
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:22:03:25:01:46",
+        rssi=-96,
+        service_data={},
+        source="local",
+    )
+    assert parser.supported(service_info) is True
+    parser = INKBIRDBluetoothDeviceData()
+    result = parser.update(service_info)
+    assert result == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="IBS-TH 0146",
+                model="IBS-TH",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="battery", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="battery", device_id=None),
+                device_class=SensorDeviceClass.BATTERY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                device_class=SensorDeviceClass.HUMIDITY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                device_class=SensorDeviceClass.TEMPERATURE,
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="battery", device_id=None): SensorValue(
+                device_key=DeviceKey(key="battery", device_id=None),
+                name="Battery",
+                native_value=100,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorValue(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                name="Humidity",
+                native_value=50.72,
+            ),
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal " "Strength",
+                native_value=-96,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorValue(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
+                native_value=23.63,
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
+
+
 def test_sps_th2_dupe_updates():
     parser = INKBIRDBluetoothDeviceData()
     service_info = BluetoothServiceInfo(
