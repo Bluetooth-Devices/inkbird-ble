@@ -50,19 +50,18 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _start_update(self, service_info: BluetoothServiceInfo) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
-        manufacturer_data = service_info.manufacturer_data
-
-        if not manufacturer_data:
+        if not (manufacturer_data := service_info.manufacturer_data):
             return
-
         local_name = service_info.name
         address = service_info.address
         lower_name = local_name.lower()
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
         msg_length = len(data)
-
-        if (device_type := INKBIRD_NAMES.get(lower_name)) and msg_length == 9:
+        if (device_type := INKBIRD_NAMES.get(lower_name)) and (
+            msg_length == 9
+            or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
+        ):
             self.set_device_name(f"{device_type} {short_address(address)}")
             self.set_device_type(device_type)
         elif is_bbq(lower_name) and (bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length)):
@@ -73,16 +72,15 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             return
 
         self.set_device_manufacturer("INKBIRD")
-
+        excludes = MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
         changed_manufacturer_data = self.changed_manufacturer_data(
-            service_info, MANUFACTURER_DATA_ID_EXCLUDES
+            service_info, excludes
         )
         if not changed_manufacturer_data or len(changed_manufacturer_data) > 1:
             # If len(changed_manufacturer_data) > 1 it means we switched
             # ble adapters so we do not know which data is the latest
             # and we need to wait for the next update.
             return
-
         last_id = list(changed_manufacturer_data)[-1]
         data = (
             int(last_id).to_bytes(2, byteorder="little")
