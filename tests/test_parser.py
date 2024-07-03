@@ -116,6 +116,22 @@ def test_unknown_sps():
     assert parser.supported(service_info) is True
 
 
+def test_sps_variant():
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = BluetoothServiceInfo(
+        name="sps",
+        manufacturer_data={
+            2083: b"\x12\x01q\x08d\x06",
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:21:09:09:65:49",
+        rssi=-96,
+        service_data={},
+        source="local",
+    )
+    assert parser.supported(service_info) is True
+
+
 def test_sps_th2_dupe_updates():
     parser = INKBIRDBluetoothDeviceData()
     service_info = BluetoothServiceInfo(
