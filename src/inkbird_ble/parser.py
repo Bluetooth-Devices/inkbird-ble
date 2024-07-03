@@ -53,8 +53,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if not (manufacturer_data := service_info.manufacturer_data):
             return
         local_name = service_info.name
-        lower_name = local_name.lower()
         address = service_info.address
+        lower_name = local_name.lower()
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
         msg_length = len(data)
@@ -64,7 +64,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         ):
             self.set_device_name(f"{device_type} {short_address(address)}")
             self.set_device_type(device_type)
+        elif is_bbq(lower_name) and (bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length)):
+            dev_type, _ = bbq_data
+            self.set_device_name(f"{local_name} {short_address(address)}")
+            self.set_device_type(f"{local_name[0]}{dev_type[1:]}")
+        else:
+            return
 
+        self.set_device_manufacturer("INKBIRD")
         excludes = MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
         changed_manufacturer_data = self.changed_manufacturer_data(
             service_info, excludes
@@ -79,19 +86,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             int(last_id).to_bytes(2, byteorder="little")
             + changed_manufacturer_data[last_id]
         )
-        msg_length = len(data)
-        if (device_type := INKBIRD_NAMES.get(lower_name)) and msg_length == 9:
-            self.set_device_name(f"{device_type} {short_address(address)}")
-            self.set_device_type(device_type)
-        elif is_bbq(lower_name) and (bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length)):
-            dev_type, _ = bbq_data
-            self.set_device_name(f"{local_name} {short_address(address)}")
-            self.set_device_type(f"{local_name[0]}{dev_type[1:]}")
-        else:
-            return
 
-        self.set_device_manufacturer("INKBIRD")
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
+        msg_length = len(data)
 
         if lower_name in INKBIRD_NAMES and msg_length == 9:
             (temp, hum) = INKBIRD_UNPACK(data[0:4])
