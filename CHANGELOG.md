@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.5.8 (2024-07-03)
+
+### Fix
+
+* Handle sps broadcasting N0BYD ([#27](https://github.com/Bluetooth-Devices/inkbird-ble/issues/27)) ([`4686f57`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/4686f57b1864fbe7163e3f82bb6f788a137baf6a))
+
 ## v0.5.7 (2024-07-03)
 
 ### Fix
