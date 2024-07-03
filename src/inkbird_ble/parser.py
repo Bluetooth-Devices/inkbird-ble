@@ -25,8 +25,10 @@ BBQ_LENGTH_TO_TYPE = {
     22: ("iBBQ-6", struct.Struct("<hhhhhh").unpack),
 }
 
+TH_NAMES = {"sps", "n0byd"}
+
 INKBIRD_NAMES = {
-    "sps": "IBS-TH",
+    **{name: "IBS-TH" for name in TH_NAMES},
     "tps": "IBS-TH2/P01B",
 }
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
@@ -93,7 +95,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if lower_name in INKBIRD_NAMES and msg_length == 9:
             (temp, hum) = INKBIRD_UNPACK(data[0:4])
             bat = int.from_bytes(data[7:8], "little")
-            if lower_name == "sps":
+            if lower_name in TH_NAMES:
                 self.update_predefined_sensor(
                     SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
                 )
