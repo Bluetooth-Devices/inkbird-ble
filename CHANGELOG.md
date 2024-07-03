@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.5.7 (2024-07-03)
+
+### Fix
+
+* Switch data change detection algorithm to use newer method ([#25](https://github.com/Bluetooth-Devices/inkbird-ble/issues/25)) ([`b41b1d6`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/b41b1d64c34c9b46ea6085c1911d2b2fc9336768))
+
 ## v0.5.6 (2023-02-06)
 ### Fix
 * Bump python-semantic-release ([#21](https://github.com/Bluetooth-Devices/inkbird-ble/issues/21)) ([`64d17d7`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/64d17d7d90a49f882143cc3fb079cfa6ef488bcb))
