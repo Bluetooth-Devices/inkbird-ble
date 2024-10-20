@@ -126,7 +126,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                     key=f"temperature_probe_{num}",
                     name=f"Temperature Probe {num}",
                 )
-        elif IAMT1_SERVICE_UUID in service_info.service_uuids:
+        elif lower_name == "iam-t1" and IAMT1_SERVICE_UUID in service_info.service_uuids:
             service_data = service_info.service_data[IAMT1_SERVICE_UUID]
             temp = int.from_bytes(service_data[5:7], "big") / 10
             temp_sign = service_data[4] & 0xF
