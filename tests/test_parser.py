@@ -8,7 +8,7 @@ from sensor_state_data import (
     Units,
 )
 
-from inkbird_ble.parser import INKBIRDBluetoothDeviceData, IAMT1_SERVICE_UUID
+from inkbird_ble.parser import IAMT1_SERVICE_UUID, INKBIRDBluetoothDeviceData
 
 
 def test_can_create():
@@ -830,7 +830,9 @@ def test_IAMT1():
     parser = INKBIRDBluetoothDeviceData()
     service_info = BluetoothServiceInfo(
         name="IAM-T1",
-        manufacturer_data={12628: b"41\x43\x2d\x36\x32\x30\x30\x61\x31\x33\x35\x39\x38\x00\x00"},
+        manufacturer_data={
+            12628: b"41\x43\x2d\x36\x32\x30\x30\x61\x31\x33\x35\x39\x38\x00\x00"
+        },
         service_uuids=[IAMT1_SERVICE_UUID],
         address="aa:bb:cc:dd:ee:ff",
         rssi=-60,
@@ -852,7 +854,7 @@ def test_IAMT1():
             )
         },
         entity_descriptions={
-            #TODO Battery
+            # TODO Battery
             # DeviceKey(key="battery", device_id=None): SensorDescription(
             #     device_key=DeviceKey(key="battery", device_id=None),
             #     device_class=SensorDeviceClass.BATTERY,
@@ -868,10 +870,10 @@ def test_IAMT1():
                 device_class=SensorDeviceClass.HUMIDITY,
                 native_unit_of_measurement=Units.PERCENTAGE,
             ),
-            DeviceKey(key='carbon_dioxide', device_id=None): SensorDescription(
-                device_key=DeviceKey(key='carbon_dioxide', device_id=None),
-                device_class= SensorDeviceClass.CO2,
-                native_unit_of_measurement = Units.CONCENTRATION_PARTS_PER_MILLION,
+            DeviceKey(key="carbon_dioxide", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="carbon_dioxide", device_id=None),
+                device_class=SensorDeviceClass.CO2,
+                native_unit_of_measurement=Units.CONCENTRATION_PARTS_PER_MILLION,
             ),
             DeviceKey(key="pressure", device_id=None): SensorDescription(
                 device_key=DeviceKey(key="pressure", device_id=None),
@@ -885,7 +887,7 @@ def test_IAMT1():
             ),
         },
         entity_values={
-            #TODO Battery
+            # TODO Battery
             # DeviceKey(key="battery", device_id=None): SensorValue(
             #     device_key=DeviceKey(key="battery", device_id=None),
             #     name="Battery",
@@ -911,11 +913,11 @@ def test_IAMT1():
                 name="Temperature",
                 native_value=19.6,
             ),
-            DeviceKey(key='carbon_dioxide', device_id=None): SensorValue(
-                device_key=DeviceKey(key='carbon_dioxide',
-                                     device_id=None),
-                name='Carbon Dioxide',
-                native_value=1112),
+            DeviceKey(key="carbon_dioxide", device_id=None): SensorValue(
+                device_key=DeviceKey(key="carbon_dioxide", device_id=None),
+                name="Carbon Dioxide",
+                native_value=1112,
+            ),
         },
         binary_entity_descriptions={},
         binary_entity_values={},

@@ -72,7 +72,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             dev_type, _ = bbq_data
             self.set_device_name(f"{local_name} {short_address(address)}")
             self.set_device_type(f"{local_name[0]}{dev_type[1:]}")
-        elif (IAMT1_SERVICE_UUID in service_info.service_uuids):
+        elif IAMT1_SERVICE_UUID in service_info.service_uuids:
             self.set_device_name(f"{local_name} {short_address(address)}")
             self.set_device_type(f"{local_name}")
         else:
@@ -131,21 +131,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             temp = int.from_bytes(service_data[5:7], "big") / 10
             temp_sign = service_data[4] & 0xF
             temp = temp if temp_sign == 0 else -temp
-            #TODO Celsius vs Fahrenheit?
-            self.update_predefined_sensor(
-                SensorLibrary.TEMPERATURE__CELSIUS, temp
-            )
+            # TODO Celsius vs Fahrenheit?
+            self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp)
             humidity = int.from_bytes(service_data[7:9], "big") / 10
-            self.update_predefined_sensor(
-                SensorLibrary.HUMIDITY__PERCENTAGE, humidity
-            )
+            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
             co2_ppm = int.from_bytes(service_data[9:11], "big")
             self.update_predefined_sensor(
                 SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION, co2_ppm
             )
             pressure_hpa = int.from_bytes(service_data[11:13], "big")
-            self.update_predefined_sensor(
-                SensorLibrary.PRESSURE__HPA, pressure_hpa
-            )
-            #TODO Battery
-
+            self.update_predefined_sensor(SensorLibrary.PRESSURE__HPA, pressure_hpa)
+            # TODO Battery
