@@ -8,7 +8,7 @@ from sensor_state_data import (
     Units,
 )
 
-from inkbird_ble.parser import INKBIRDBluetoothDeviceData
+from inkbird_ble.parser import INKBIRDBluetoothDeviceData, IAMT1_SERVICE_UUID
 
 
 def test_can_create():
@@ -819,6 +819,103 @@ def test_n0byd():
                 name="Humidity",
                 native_value=77.07,
             ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
+
+
+def test_IAMT1():
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = BluetoothServiceInfo(
+        name="IAM-T1",
+        manufacturer_data={12628: b"41\x43\x2d\x36\x32\x30\x30\x61\x31\x33\x35\x39\x38\x00\x00"},
+        service_uuids=[IAMT1_SERVICE_UUID],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={
+            IAMT1_SERVICE_UUID: b"\x55\xaa\x01\x10\x00\x00\xc4\x02\xda\x04\x58\x03\xee\x01\x00\xfe",
+        },  # 1112 PPM CO2, 19,6°C, 73% humidity, 1006 hPa
+        source="local",
+    )
+    result = parser.update(service_info)
+    assert result == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="IAM-T1 EEFF",
+                model="IAM-T1",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            #TODO Battery
+            # DeviceKey(key="battery", device_id=None): SensorDescription(
+            #     device_key=DeviceKey(key="battery", device_id=None),
+            #     device_class=SensorDeviceClass.BATTERY,
+            #     native_unit_of_measurement=Units.PERCENTAGE,
+            # ),
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                device_class=SensorDeviceClass.HUMIDITY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+            DeviceKey(key='carbon_dioxide', device_id=None): SensorDescription(
+                device_key=DeviceKey(key='carbon_dioxide', device_id=None),
+                device_class= SensorDeviceClass.CO2,
+                native_unit_of_measurement = Units.CONCENTRATION_PARTS_PER_MILLION,
+            ),
+            DeviceKey(key="pressure", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="pressure", device_id=None),
+                device_class=SensorDeviceClass.PRESSURE,
+                native_unit_of_measurement=Units.PRESSURE_HPA,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                device_class=SensorDeviceClass.TEMPERATURE,
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
+            ),
+        },
+        entity_values={
+            #TODO Battery
+            # DeviceKey(key="battery", device_id=None): SensorValue(
+            #     device_key=DeviceKey(key="battery", device_id=None),
+            #     name="Battery",
+            #     native_value=55,
+            # ),
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal " "Strength",
+                native_value=-60,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorValue(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                name="Humidity",
+                native_value=73.0,
+            ),
+            DeviceKey(key="pressure", device_id=None): SensorValue(
+                device_key=DeviceKey(key="pressure", device_id=None),
+                name="Pressure",
+                native_value=1006,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorValue(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
+                native_value=19.6,
+            ),
+            DeviceKey(key='carbon_dioxide', device_id=None): SensorValue(
+                device_key=DeviceKey(key='carbon_dioxide',
+                                     device_id=None),
+                name='Carbon Dioxide',
+                native_value=1112),
         },
         binary_entity_descriptions={},
         binary_entity_values={},

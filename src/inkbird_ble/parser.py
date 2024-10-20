@@ -16,6 +16,8 @@ from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfo
 from sensor_state_data import SensorLibrary
 
+IAMT1_SERVICE_UUID = "0000ffe4-0000-1000-8000-00805f9b34fb"
+
 _LOGGER = logging.getLogger(__name__)
 
 BBQ_LENGTH_TO_TYPE = {
@@ -70,6 +72,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             dev_type, _ = bbq_data
             self.set_device_name(f"{local_name} {short_address(address)}")
             self.set_device_type(f"{local_name[0]}{dev_type[1:]}")
+        elif (IAMT1_SERVICE_UUID in service_info.service_uuids):
+            self.set_device_name(f"{local_name} {short_address(address)}")
+            self.set_device_type(f"{local_name}")
         else:
             return
 
@@ -121,3 +126,26 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                     key=f"temperature_probe_{num}",
                     name=f"Temperature Probe {num}",
                 )
+        elif IAMT1_SERVICE_UUID in service_info.service_uuids:
+            service_data = service_info.service_data[IAMT1_SERVICE_UUID]
+            temp = int.from_bytes(service_data[5:7], "big") / 10
+            temp_sign = service_data[4] & 0xF
+            temp = temp if temp_sign == 0 else -temp
+            #TODO Celsius vs Fahrenheit?
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS, temp
+            )
+            humidity = int.from_bytes(service_data[7:9], "big") / 10
+            self.update_predefined_sensor(
+                SensorLibrary.HUMIDITY__PERCENTAGE, humidity
+            )
+            co2_ppm = int.from_bytes(service_data[9:11], "big")
+            self.update_predefined_sensor(
+                SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION, co2_ppm
+            )
+            pressure_hpa = int.from_bytes(service_data[11:13], "big")
+            self.update_predefined_sensor(
+                SensorLibrary.PRESSURE__HPA, pressure_hpa
+            )
+            #TODO Battery
+
