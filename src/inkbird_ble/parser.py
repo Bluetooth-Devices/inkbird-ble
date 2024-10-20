@@ -131,7 +131,6 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             temp = int.from_bytes(service_data[5:7], "big") / 10
             temp_sign = service_data[4] & 0xF
             temp = temp if temp_sign == 0 else -temp
-            # TODO Celsius vs Fahrenheit?
             self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp)
             humidity = int.from_bytes(service_data[7:9], "big") / 10
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
