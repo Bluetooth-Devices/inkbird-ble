@@ -837,7 +837,10 @@ def test_IAMT1():
         address="aa:bb:cc:dd:ee:ff",
         rssi=-60,
         service_data={
-            IAMT1_SERVICE_UUID: b"\x55\xaa\x01\x10\x00\x00\xc4\x02\xda\x04\x58\x03\xee\x01\x00\xfe",
+            IAMT1_SERVICE_UUID: (
+                b"\x55\xaa\x01\x10\x00\x00\xc4\x02"
+                b"\xda\x04\x58\x03\xee\x01\x00\xfe"
+             ),
         },  # 1112 PPM CO2, 19,6°C, 73% humidity, 1006 hPa
         source="local",
     )
