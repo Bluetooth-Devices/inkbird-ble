@@ -824,3 +824,20 @@ def test_n0byd():
         binary_entity_values={},
         events={},
     )
+
+
+def test_ith_21_b():
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = BluetoothServiceInfo(
+        name="ITH-21-B",
+        manufacturer_data={
+            9289: b"\x07\x11\x00\x98\xd8\x00\x13\x02d\x01\x90\x04\x00\x00\x00\x00",
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-34,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(service_info)
+    assert result
