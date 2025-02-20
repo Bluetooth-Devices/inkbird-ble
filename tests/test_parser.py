@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import pytest
 from bluetooth_sensor_state_data import BluetoothServiceInfo, DeviceClass, SensorUpdate
 from sensor_state_data import (
