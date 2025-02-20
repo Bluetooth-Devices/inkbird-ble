@@ -17,13 +17,13 @@ from .parser import INKBIRDBluetoothDeviceData
 __version__ = "0.5.8"
 
 __all__ = [
+    "DeviceClass",
+    "DeviceKey",
     "INKBIRDBluetoothDeviceData",
     "SensorDescription",
     "SensorDeviceInfo",
-    "DeviceClass",
-    "DeviceKey",
-    "SensorUpdate",
     "SensorDeviceInfo",
+    "SensorUpdate",
     "SensorValue",
     "Units",
 ]
