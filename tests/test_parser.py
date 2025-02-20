@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import pytest
 from bluetooth_sensor_state_data import BluetoothServiceInfo, DeviceClass, SensorUpdate
 from sensor_state_data import (
     DeviceKey,
@@ -8,7 +11,7 @@ from sensor_state_data import (
     Units,
 )
 
-from inkbird_ble.parser import INKBIRDBluetoothDeviceData
+from inkbird_ble.parser import INKBIRDBluetoothDeviceData, Model
 
 
 def test_can_create():
@@ -26,7 +29,23 @@ def test_unsupported():
         service_data={},
         source="local",
     )
-    parser.supported(service_info) is False
+    assert parser.supported(service_info) is False
+    assert parser.device_type is None
+
+
+def test_sps_with_invalid_model_passed():
+    parser = INKBIRDBluetoothDeviceData("invalid")
+    service_info = BluetoothServiceInfo(
+        name="sps",
+        manufacturer_data={2044: b"\xc7\x12\x00\xc8=V\x06"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.device_type == Model.IBS_TH
 
 
 def test_sps():
@@ -41,6 +60,7 @@ def test_sps():
         source="local",
     )
     result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_TH
     assert result == SensorUpdate(
         title=None,
         devices={
@@ -114,6 +134,7 @@ def test_unknown_sps():
         source="local",
     )
     assert parser.supported(service_info) is True
+    assert parser.device_type == Model.IBS_TH
 
 
 def test_sps_variant():
@@ -130,6 +151,7 @@ def test_sps_variant():
         source="local",
     )
     assert parser.supported(service_info) is True
+    assert parser.device_type == Model.IBS_TH
 
 
 def test_sps_variant2():
@@ -146,6 +168,7 @@ def test_sps_variant2():
         source="local",
     )
     assert parser.supported(service_info) is True
+    assert parser.device_type == Model.IBS_TH
     parser = INKBIRDBluetoothDeviceData()
     result = parser.update(service_info)
     assert result == SensorUpdate(
@@ -221,6 +244,7 @@ def test_sps_th2_dupe_updates():
         source="local",
     )
     result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_TH
     assert result == SensorUpdate(
         title=None,
         devices={
@@ -291,6 +315,7 @@ def test_sps_th2():
         source="local",
     )
     result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_TH
     assert result == SensorUpdate(
         title=None,
         devices={
@@ -365,6 +390,7 @@ def test_unknown_tps():
     assert parser.supported(service_info) is True
     parser = INKBIRDBluetoothDeviceData()
     result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_TH2
     assert result == SensorUpdate(
         title=None,
         devices={
@@ -430,6 +456,7 @@ def test_ibbq_4():
         source="local",
     )
     result = parser.update(service_info)
+    assert parser.device_type == Model.IBBQ_4
     assert result == SensorUpdate(
         title=None,
         devices={
@@ -510,6 +537,7 @@ def test_ibt_2x():
         source="local",
     )
     result = parser.update(service_info)
+    assert parser.device_type == Model.IBBQ_2
     assert result == SensorUpdate(
         title=None,
         devices={
@@ -571,6 +599,7 @@ def test_xbbq_2a_adv1():
         source="local",
     )
     result = parser.update(service_info)
+    assert parser.device_type == Model.IBBQ_2
     assert result == SensorUpdate(
         title=None,
         devices={
@@ -634,6 +663,7 @@ def test_xbbq_2a_adv2():
         source="local",
     )
     assert parser.supported(service_info) is True
+    assert parser.device_type == Model.IBBQ_2
     parser = INKBIRDBluetoothDeviceData()
     result = parser.update(service_info)
     assert result == SensorUpdate(
@@ -703,6 +733,7 @@ def test_xbbq_multiple_mfr_data():
         source="local",
     )
     result = parser.update(service_info)
+    assert parser.device_type == Model.IBBQ_2
     assert result == SensorUpdate(
         title=None,
         devices={
@@ -753,8 +784,11 @@ def test_xbbq_multiple_mfr_data():
     )
 
 
-def test_n0byd():
-    parser = INKBIRDBluetoothDeviceData()
+@pytest.mark.parametrize(("model"), [Model.IBS_TH, "IBS-TH"])
+def test_corrupt_name(model: Model | str) -> None:
+    """Test corrupt name."""
+    parser = INKBIRDBluetoothDeviceData(model)
+    assert parser.device_type == Model.IBS_TH
     service_info = BluetoothServiceInfo(
         name="N0BYD",
         manufacturer_data={63915: b"\x1b\x1e\x00H\xe37\x08"},
@@ -840,4 +874,5 @@ def test_ith_21_b():
         source="local",
     )
     result = parser.update(service_info)
+    assert parser.device_type is None
     assert result

@@ -9,8 +9,11 @@ MIT License applies.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import struct
+from enum import StrEnum
+from functools import lru_cache
 
 from bluetooth_data_tools import short_address
 from bluetooth_sensor_state_data import BluetoothData
@@ -19,22 +22,56 @@ from sensor_state_data import SensorLibrary
 
 _LOGGER = logging.getLogger(__name__)
 
-BBQ_LENGTH_TO_TYPE = {
-    12: ("iBBQ-1", struct.Struct("<h").unpack),
-    14: ("iBBQ-2", struct.Struct("<HH").unpack),
-    18: ("iBBQ-4", struct.Struct("<hhhh").unpack),
-    22: ("iBBQ-6", struct.Struct("<hhhhhh").unpack),
+
+class Model(StrEnum):
+
+    IBBQ_1 = "iBBQ-1"
+    IBBQ_2 = "iBBQ-2"
+    IBBQ_4 = "iBBQ-4"
+    IBBQ_6 = "iBBQ-6"
+    IBS_TH = "IBS-TH"
+    IBS_TH2 = "IBS-TH2"
+
+
+MODEL_NAMES = {
+    Model.IBBQ_1: "iBBQ-1",
+    Model.IBBQ_2: "iBBQ-2",
+    Model.IBBQ_4: "iBBQ-4",
+    Model.IBBQ_6: "iBBQ-6",
+    Model.IBS_TH: "IBS-TH",
+    Model.IBS_TH2: "IBS-TH2/P01B",
 }
 
-TH_NAMES = {"sps", "n0byd"}
+BBQ_LENGTH_TO_TYPE = {
+    12: (Model.IBBQ_1, struct.Struct("<h").unpack),
+    14: (Model.IBBQ_2, struct.Struct("<HH").unpack),
+    18: (Model.IBBQ_4, struct.Struct("<hhhh").unpack),
+    22: (Model.IBBQ_6, struct.Struct("<hhhhhh").unpack),
+}
+
+BBQ_MODELS = {Model.IBBQ_1, Model.IBBQ_2, Model.IBBQ_4, Model.IBBQ_6}
+
+SENSOR_MODELS = {Model.IBS_TH, Model.IBS_TH2}
 
 INKBIRD_NAMES = {
-    **{name: "IBS-TH" for name in TH_NAMES},
-    "tps": "IBS-TH2/P01B",
+    "sps": Model.IBS_TH,
+    "tps": Model.IBS_TH2,
 }
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
+
+
+@lru_cache
+def try_parse_model(value: str | Model | None) -> Model | None:
+    """
+    Try to parse the value into a model.
+
+    Return None if parsing fails.
+    """
+    with contextlib.suppress(ValueError):
+        return Model(value)  # type: ignore[arg-type]
+    return None
 
 
 def convert_temperature(temp: float) -> float:
@@ -50,6 +87,16 @@ def is_bbq(lower_name: str) -> bool:
 class INKBIRDBluetoothDeviceData(BluetoothData):
     """Date update for INKBIRD Bluetooth devices."""
 
+    def __init__(self, device_type: Model | str | None = None) -> None:
+        """Initialize the class."""
+        super().__init__()
+        self._device_type = try_parse_model(device_type)
+
+    @property
+    def device_type(self) -> Model | None:
+        """Return the device type."""
+        return self._device_type
+
     def _start_update(self, service_info: BluetoothServiceInfo) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
@@ -61,18 +108,26 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
         msg_length = len(data)
-        if (device_type := INKBIRD_NAMES.get(lower_name)) and (
-            msg_length == 9
-            or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
-        ):
-            self.set_device_name(f"{device_type} {short_address(address)}")
-            self.set_device_type(device_type)
-        elif is_bbq(lower_name) and (bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length)):
-            dev_type, _ = bbq_data
+        if self._device_type is None:
+            # If we do not know the device type yet, try to determine it
+            # from the advertisement data.
+            if (lower_name in INKBIRD_NAMES) and (
+                msg_length == 9
+                or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
+            ):
+                self._device_type = INKBIRD_NAMES[lower_name]
+            elif is_bbq(lower_name) and msg_length in BBQ_LENGTH_TO_TYPE:
+                self._device_type = BBQ_LENGTH_TO_TYPE[msg_length][0]
+            else:
+                return
+
+        dev_type_name = MODEL_NAMES[self._device_type]
+        if self._device_type in BBQ_MODELS:
             self.set_device_name(f"{local_name} {short_address(address)}")
-            self.set_device_type(f"{local_name[0]}{dev_type[1:]}")
-        else:
-            return
+            self.set_device_type(f"{local_name[0]}{dev_type_name[1:]}")
+        elif self._device_type in SENSOR_MODELS:
+            self.set_device_name(f"{dev_type_name} {short_address(address)}")
+            self.set_device_type(dev_type_name)
 
         self.set_device_manufacturer("INKBIRD")
         excludes = MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
@@ -93,25 +148,21 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
         msg_length = len(data)
 
-        if lower_name in INKBIRD_NAMES and msg_length == 9:
+        if self._device_type in SENSOR_MODELS:
             (temp, hum) = INKBIRD_UNPACK(data[0:4])
             bat = int.from_bytes(data[7:8], "little")
-            if lower_name in TH_NAMES:
-                self.update_predefined_sensor(
-                    SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
-                )
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
+            )
+            self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
+            if self._device_type == Model.IBS_TH:
                 self.update_predefined_sensor(
                     SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
                 )
-                self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
-            elif lower_name == "tps":
-                self.update_predefined_sensor(
-                    SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
-                )
-                self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
+            return
 
-        elif is_bbq(lower_name) and (bbq_data := BBQ_LENGTH_TO_TYPE.get(msg_length)):
-            _, unpacker = bbq_data
+        if self._device_type in BBQ_MODELS:
+            _, unpacker = BBQ_LENGTH_TO_TYPE[msg_length]
             # Some are iBBQ, some are xBBQ
             xvalue = data[10:]
             for idx, temp in enumerate(unpacker(xvalue)):
