@@ -2,6 +2,12 @@
 
 <!--next-version-placeholder-->
 
+## v0.6.0 (2025-02-20)
+
+### Feature
+
+* Add support for passing in the model ([#47](https://github.com/Bluetooth-Devices/inkbird-ble/issues/47)) ([`886b180`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/886b1805eb38f4800785b31e3a55460d9bd7b045))
+
 ## v0.5.8 (2024-07-03)
 
 ### Fix
