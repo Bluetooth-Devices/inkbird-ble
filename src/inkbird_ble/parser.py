@@ -14,17 +14,20 @@ import logging
 import struct
 from enum import StrEnum
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from bluetooth_data_tools import short_address
 from bluetooth_sensor_state_data import BluetoothData
-from home_assistant_bluetooth import BluetoothServiceInfo
 from sensor_state_data import SensorLibrary
+
+if TYPE_CHECKING:
+    from home_assistant_bluetooth import BluetoothServiceInfo
+
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class Model(StrEnum):
-
     IBBQ_1 = "iBBQ-1"
     IBBQ_2 = "iBBQ-2"
     IBBQ_4 = "iBBQ-4"
@@ -112,7 +115,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # If we do not know the device type yet, try to determine it
             # from the advertisement data.
             if (lower_name in INKBIRD_NAMES) and (
-                msg_length == 9
+                msg_length == 9  # noqa: PLR2004
                 or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
             ):
                 self._device_type = INKBIRD_NAMES[lower_name]
