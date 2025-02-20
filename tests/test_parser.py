@@ -217,7 +217,7 @@ def test_sps_variant2():
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorValue(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="Signal " "Strength",
+                name="Signal Strength",
                 native_value=-96,
             ),
             DeviceKey(key="temperature", device_id=None): SensorValue(
@@ -427,7 +427,7 @@ def test_unknown_tps():
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorValue(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="Signal " "Strength",
+                name="Signal Strength",
                 native_value=-54,
             ),
             DeviceKey(key="battery", device_id=None): SensorValue(
@@ -503,22 +503,22 @@ def test_ibbq_4():
             ),
             DeviceKey(key="temperature_probe_1", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_1", device_id=None),
-                name="Temperature " "Probe " "1",
+                name="Temperature Probe 1",
                 native_value=26.0,
             ),
             DeviceKey(key="temperature_probe_2", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_2", device_id=None),
-                name="Temperature " "Probe " "2",
+                name="Temperature Probe 2",
                 native_value=25.0,
             ),
             DeviceKey(key="temperature_probe_3", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_3", device_id=None),
-                name="Temperature " "Probe " "3",
+                name="Temperature Probe 3",
                 native_value=26.0,
             ),
             DeviceKey(key="temperature_probe_4", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_4", device_id=None),
-                name="Temperature " "Probe " "4",
+                name="Temperature Probe 4",
                 native_value=25.0,
             ),
         },
@@ -569,17 +569,17 @@ def test_ibt_2x():
         entity_values={
             DeviceKey(key="temperature_probe_1", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_1", device_id=None),
-                name="Temperature " "Probe " "1",
+                name="Temperature Probe 1",
                 native_value=27.6,
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorValue(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="Signal " "Strength",
+                name="Signal Strength",
                 native_value=-60,
             ),
             DeviceKey(key="temperature_probe_2", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_2", device_id=None),
-                name="Temperature " "Probe " "2",
+                name="Temperature Probe 2",
                 native_value=27.3,
             ),
         },
@@ -631,17 +631,17 @@ def test_xbbq_2a_adv1():
         entity_values={
             DeviceKey(key="temperature_probe_1", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_1", device_id=None),
-                name="Temperature " "Probe " "1",
+                name="Temperature Probe 1",
                 native_value=24.8,
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorValue(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="Signal " "Strength",
+                name="Signal Strength",
                 native_value=-60,
             ),
             DeviceKey(key="temperature_probe_2", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_2", device_id=None),
-                name="Temperature " "Probe " "2",
+                name="Temperature Probe 2",
                 native_value=6553.5,
             ),
         },
@@ -697,17 +697,17 @@ def test_xbbq_2a_adv2():
         entity_values={
             DeviceKey(key="temperature_probe_1", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_1", device_id=None),
-                name="Temperature " "Probe " "1",
+                name="Temperature Probe 1",
                 native_value=15.4,
             ),
             DeviceKey(key="temperature_probe_2", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_2", device_id=None),
-                name="Temperature " "Probe " "2",
+                name="Temperature Probe 2",
                 native_value=1.9,
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorValue(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="Signal " "Strength",
+                name="Signal Strength",
                 native_value=-60,
             ),
         },
@@ -765,17 +765,17 @@ def test_xbbq_multiple_mfr_data():
         entity_values={
             DeviceKey(key="temperature_probe_2", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_2", device_id=None),
-                name="Temperature " "Probe " "2",
+                name="Temperature Probe 2",
                 native_value=27.4,
             ),
             DeviceKey(key="temperature_probe_1", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature_probe_1", device_id=None),
-                name="Temperature " "Probe " "1",
+                name="Temperature Probe 1",
                 native_value=27.3,
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorValue(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="Signal " "Strength",
+                name="Signal Strength",
                 native_value=-60,
             ),
         },
@@ -845,7 +845,7 @@ def test_corrupt_name(model: Model | str) -> None:
             ),
             DeviceKey(key="signal_strength", device_id=None): SensorValue(
                 device_key=DeviceKey(key="signal_strength", device_id=None),
-                name="Signal " "Strength",
+                name="Signal Strength",
                 native_value=-60,
             ),
             DeviceKey(key="humidity", device_id=None): SensorValue(
