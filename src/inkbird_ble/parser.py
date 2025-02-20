@@ -9,9 +9,11 @@ MIT License applies.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import struct
 from enum import StrEnum
+from functools import lru_cache
 
 from bluetooth_data_tools import short_address
 from bluetooth_sensor_state_data import BluetoothData
@@ -60,6 +62,18 @@ INKBIRD_UNPACK = struct.Struct("<hH").unpack
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
 
 
+@lru_cache
+def try_parse_model(value: str | Model | None) -> Model | None:
+    """
+    Try to parse the value into a model.
+
+    Return None if parsing fails.
+    """
+    with contextlib.suppress(ValueError):
+        return Model(value)  # type: ignore[arg-type]
+    return None
+
+
 def convert_temperature(temp: float) -> float:
     """Temperature converter."""
     return temp / 10.0 if temp > 0 else 0
@@ -76,11 +90,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def __init__(self, device_type: Model | str | None = None) -> None:
         """Initialize the class."""
         super().__init__()
-        self._device_type = (
-            Model(device_type)
-            if device_type is not None and not isinstance(device_type, Model)
-            else device_type
-        )
+        self._device_type = try_parse_model(device_type)
 
     @property
     def device_type(self) -> Model | None:
