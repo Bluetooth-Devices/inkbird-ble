@@ -158,7 +158,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
             )
             self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
-            if self._device_type == Model.IBS_TH:
+            # Only some TH2 models have humidity
+            if self._device_type == Model.IBS_TH or (
+                self._device_type == Model.IBS_TH2 and hum != 0
+            ):
                 self.update_predefined_sensor(
                     SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
                 )
