@@ -1,6 +1,70 @@
 # CHANGELOG
 
 
+## v0.7.1 (2025-03-01)
+
+### Bug Fixes
+
+- Add missing humid sensor on newer TH2 models that have it
+  ([#64](https://github.com/Bluetooth-Devices/inkbird-ble/pull/64),
+  [`e6283ad`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/e6283ada62bfe3794c37889b1a82f5e72eef1d18))
+
+### Chores
+
+- **ci**: Bump the github-actions group with 2 updates
+  ([#63](https://github.com/Bluetooth-Devices/inkbird-ble/pull/63),
+  [`0929e03`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/0929e031bc3088570cc0698dd3e2a9ad492301a2))
+
+Bumps the github-actions group with 2 updates:
+  [python-semantic-release/python-semantic-release](https://github.com/python-semantic-release/python-semantic-release)
+  and
+  [python-semantic-release/publish-action](https://github.com/python-semantic-release/publish-action).
+
+Updates `python-semantic-release/python-semantic-release` from 9.20.0 to 9.21.0 - [Release
+  notes](https://github.com/python-semantic-release/python-semantic-release/releases) -
+  [Changelog](https://github.com/python-semantic-release/python-semantic-release/blob/master/CHANGELOG.rst)
+  -
+  [Commits](https://github.com/python-semantic-release/python-semantic-release/compare/v9.20.0...v9.21.0)
+
+Updates `python-semantic-release/publish-action` from 9.20.0 to 9.21.0 - [Release
+  notes](https://github.com/python-semantic-release/publish-action/releases) -
+  [Changelog](https://github.com/python-semantic-release/publish-action/blob/main/releaserc.toml) -
+  [Commits](https://github.com/python-semantic-release/publish-action/compare/v9.20.0...v9.21.0)
+
+--- updated-dependencies: - dependency-name: python-semantic-release/python-semantic-release
+  dependency-type: direct:production
+
+update-type: version-update:semver-minor
+
+dependency-group: github-actions
+
+- dependency-name: python-semantic-release/publish-action dependency-type: direct:production
+
+dependency-group: github-actions ...
+
+Signed-off-by: dependabot[bot] <support@github.com>
+
+Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+
+- **deps**: Bump myst-parser from 1.0.0 to 3.0.1
+  ([#61](https://github.com/Bluetooth-Devices/inkbird-ble/pull/61),
+  [`7708961`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/77089618c5503e6041deca0e467506e5c100bd32))
+
+Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+
+- **deps**: Bump sphinx-rtd-theme from 2.0.0 to 3.0.2
+  ([#62](https://github.com/Bluetooth-Devices/inkbird-ble/pull/62),
+  [`564fb88`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/564fb882bdab262af23d2d1344d445caf2a007d8))
+
+Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#60](https://github.com/Bluetooth-Devices/inkbird-ble/pull/60),
+  [`65febcf`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/65febcfd2cd9835d339ec2526c44b5114bc7f80d))
+
+Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+
+
 ## v0.7.0 (2025-02-20)
 
 ### Chores
