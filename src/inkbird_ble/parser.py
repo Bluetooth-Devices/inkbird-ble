@@ -14,13 +14,15 @@ import logging
 import struct
 from enum import StrEnum
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from bluetooth_data_tools import short_address
 from bluetooth_sensor_state_data import BluetoothData
 from sensor_state_data import SensorLibrary
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from home_assistant_bluetooth import BluetoothServiceInfo
 
 
@@ -34,6 +36,8 @@ class Model(StrEnum):
     IBBQ_6 = "iBBQ-6"
     IBS_TH = "IBS-TH"
     IBS_TH2 = "IBS-TH2"
+    ITH_13_B = "ITH-13-B"
+    ITH_21_B = "ITH-21-B"
 
 
 MODEL_NAMES = {
@@ -43,6 +47,8 @@ MODEL_NAMES = {
     Model.IBBQ_6: "iBBQ-6",
     Model.IBS_TH: "IBS-TH",
     Model.IBS_TH2: "IBS-TH2/P01B",
+    Model.ITH_13_B: "ITH-13-B",
+    Model.ITH_21_B: "ITH-21-B",
 }
 
 BBQ_LENGTH_TO_TYPE = {
@@ -54,11 +60,16 @@ BBQ_LENGTH_TO_TYPE = {
 
 BBQ_MODELS = {Model.IBBQ_1, Model.IBBQ_2, Model.IBBQ_4, Model.IBBQ_6}
 
-SENSOR_MODELS = {Model.IBS_TH, Model.IBS_TH2}
+NINE_BYTE_SENSOR_MODELS = {Model.IBS_TH, Model.IBS_TH2}
+SIXTEEN_BYTE_SENSOR_MODELS = {Model.ITH_21_B, Model.ITH_13_B}
+
+SENSOR_MODELS = {*NINE_BYTE_SENSOR_MODELS, *SIXTEEN_BYTE_SENSOR_MODELS}
 
 INKBIRD_NAMES = {
-    "sps": Model.IBS_TH,
-    "tps": Model.IBS_TH2,
+    "sps": Model.IBS_TH,  # 9 byte manufacturer data
+    "tps": Model.IBS_TH2,  # 9 byte manufacturer data
+    "ith-13-b": Model.ITH_13_B,  # 16 byte manufacturer data
+    "ith-21-b": Model.ITH_21_B,  # 16 byte manufacturer data
 }
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
@@ -115,7 +126,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # If we do not know the device type yet, try to determine it
             # from the advertisement data.
             if (lower_name in INKBIRD_NAMES) and (
-                msg_length == 9  # noqa: PLR2004
+                msg_length in (9, 16)
                 or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
             ):
                 self._device_type = INKBIRD_NAMES[lower_name]
@@ -149,33 +160,58 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         )
 
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
-        msg_length = len(data)
+        self._device_type_dispatch[self._device_type](self, data, msg_length)
 
-        if self._device_type in SENSOR_MODELS:
-            (temp, hum) = INKBIRD_UNPACK(data[0:4])
-            bat = int.from_bytes(data[7:8], "little")
+    def _update_bbq_model(self, data: bytes, msg_length: int) -> None:
+        """Update a BBQ sensor model."""
+        _, unpacker = BBQ_LENGTH_TO_TYPE[msg_length]
+        # Some are iBBQ, some are xBBQ
+        xvalue = data[10:]
+        for idx, temp in enumerate(unpacker(xvalue)):
+            num = idx + 1
             self.update_predefined_sensor(
-                SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
+                SensorLibrary.TEMPERATURE__CELSIUS,
+                convert_temperature(temp),
+                key=f"temperature_probe_{num}",
+                name=f"Temperature Probe {num}",
             )
-            self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
-            # Only some TH2 models have humidity
-            if self._device_type == Model.IBS_TH or (
-                self._device_type == Model.IBS_TH2 and hum != 0
-            ):
-                self.update_predefined_sensor(
-                    SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
-                )
-            return
 
-        if self._device_type in BBQ_MODELS:
-            _, unpacker = BBQ_LENGTH_TO_TYPE[msg_length]
-            # Some are iBBQ, some are xBBQ
-            xvalue = data[10:]
-            for idx, temp in enumerate(unpacker(xvalue)):
-                num = idx + 1
-                self.update_predefined_sensor(
-                    SensorLibrary.TEMPERATURE__CELSIUS,
-                    convert_temperature(temp),
-                    key=f"temperature_probe_{num}",
-                    name=f"Temperature Probe {num}",
-                )
+    def _update_nine_byte_model(self, data: bytes, msg_length: int) -> None:
+        """Update the sensor values for a 9 byte model."""
+        (temp, hum) = INKBIRD_UNPACK(data[0:4])
+        bat = int.from_bytes(data[7:8], "little")
+        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 100)
+        self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
+        # Only some TH2 models have humidity
+        if self._device_type == Model.IBS_TH or (
+            self._device_type == Model.IBS_TH2 and hum != 0
+        ):
+            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100)
+
+    def _update_sixteen_byte_model(self, data: bytes, msg_length: int) -> None:
+        """Update the sensor values for a 16 byte model."""
+        (temp, hum) = INKBIRD_UNPACK(data[6:10])
+        bat = int.from_bytes(data[10:11], "little")
+        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
+        self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
+        self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
+
+    _device_type_dispatch: ClassVar[
+        dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
+    ]
+
+
+INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
+    **{
+        model: INKBIRDBluetoothDeviceData._update_bbq_model  # noqa: SLF001
+        for model in BBQ_MODELS
+    },
+    **{
+        model: INKBIRDBluetoothDeviceData._update_nine_byte_model  # noqa: SLF001
+        for model in NINE_BYTE_SENSOR_MODELS
+    },
+    **{
+        model: INKBIRDBluetoothDeviceData._update_sixteen_byte_model  # noqa: SLF001
+        for model in SIXTEEN_BYTE_SENSOR_MODELS
+    },
+}
