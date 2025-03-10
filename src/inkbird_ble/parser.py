@@ -60,8 +60,10 @@ BBQ_LENGTH_TO_TYPE = {
 
 BBQ_MODELS = {Model.IBBQ_1, Model.IBBQ_2, Model.IBBQ_4, Model.IBBQ_6}
 
-SENSOR_MODELS = {Model.IBS_TH, Model.IBS_TH2, Model.ITH_21_B, Model.ITH_13_B}
-SIXTEEN_BYTE_MODELS = {Model.ITH_21_B, Model.ITH_13_B}
+NINE_BYTE_SENSOR_MODELS = {Model.IBS_TH, Model.IBS_TH2}
+SIXTEEN_BYTE_SENSOR_MODELS = {Model.ITH_21_B, Model.ITH_13_B}
+
+SENSOR_MODELS = {*NINE_BYTE_SENSOR_MODELS, *SIXTEEN_BYTE_SENSOR_MODELS}
 
 INKBIRD_NAMES = {
     "sps": Model.IBS_TH,  # 9 byte manufacturer data
@@ -196,13 +198,20 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
     _device_type_dispatch: ClassVar[
         dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
-    ] = {
-        Model.IBBQ_1: _update_bbq_model,
-        Model.IBBQ_2: _update_bbq_model,
-        Model.IBBQ_4: _update_bbq_model,
-        Model.IBBQ_6: _update_bbq_model,
-        Model.IBS_TH: _update_nine_byte_model,
-        Model.IBS_TH2: _update_nine_byte_model,
-        Model.ITH_13_B: _update_sixteen_byte_model,
-        Model.ITH_21_B: _update_sixteen_byte_model,
-    }
+    ]
+
+
+INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
+    **{
+        model: INKBIRDBluetoothDeviceData._update_bbq_model  # noqa: SLF001
+        for model in BBQ_MODELS
+    },
+    **{
+        model: INKBIRDBluetoothDeviceData._update_nine_byte_model  # noqa: SLF001
+        for model in NINE_BYTE_SENSOR_MODELS
+    },
+    **{
+        model: INKBIRDBluetoothDeviceData._update_sixteen_byte_model  # noqa: SLF001
+        for model in SIXTEEN_BYTE_SENSOR_MODELS
+    },
+}
