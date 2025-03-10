@@ -1,6 +1,62 @@
 # CHANGELOG
 
 
+## v0.8.0 (2025-03-10)
+
+### Chores
+
+- **deps**: Bump sphinx from 6.2.1 to 7.4.7
+  ([#67](https://github.com/Bluetooth-Devices/inkbird-ble/pull/67),
+  [`9ae0e2c`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/9ae0e2c101553da2da8161666a203b60594ec4b5))
+
+Bumps [sphinx](https://github.com/sphinx-doc/sphinx) from 6.2.1 to 7.4.7. - [Release
+  notes](https://github.com/sphinx-doc/sphinx/releases) -
+  [Changelog](https://github.com/sphinx-doc/sphinx/blob/v7.4.7/CHANGES.rst) -
+  [Commits](https://github.com/sphinx-doc/sphinx/compare/v6.2.1...v7.4.7)
+
+--- updated-dependencies: - dependency-name: sphinx dependency-type: direct:production
+
+update-type: version-update:semver-major ...
+
+Signed-off-by: dependabot[bot] <support@github.com>
+
+Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+
+- **deps-dev**: Bump pytest from 8.3.4 to 8.3.5
+  ([#66](https://github.com/Bluetooth-Devices/inkbird-ble/pull/66),
+  [`1938624`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/19386243bcad5a4b8a0b18e66206af160091f7ca))
+
+Bumps [pytest](https://github.com/pytest-dev/pytest) from 8.3.4 to 8.3.5. - [Release
+  notes](https://github.com/pytest-dev/pytest/releases) -
+  [Changelog](https://github.com/pytest-dev/pytest/blob/main/CHANGELOG.rst) -
+  [Commits](https://github.com/pytest-dev/pytest/compare/8.3.4...8.3.5)
+
+--- updated-dependencies: - dependency-name: pytest dependency-type: direct:development
+
+update-type: version-update:semver-patch ...
+
+Signed-off-by: dependabot[bot] <support@github.com>
+
+Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#65](https://github.com/Bluetooth-Devices/inkbird-ble/pull/65),
+  [`6dd8d09`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/6dd8d0901e182caa55473cbed41a03dc840fa8ab))
+
+updates: - [github.com/commitizen-tools/commitizen: v4.2.2 →
+  v4.4.1](https://github.com/commitizen-tools/commitizen/compare/v4.2.2...v4.4.1) -
+  [github.com/astral-sh/ruff-pre-commit: v0.9.7 →
+  v0.9.9](https://github.com/astral-sh/ruff-pre-commit/compare/v0.9.7...v0.9.9)
+
+Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+
+### Features
+
+- Add support for ITH-13-B and ITH-21-B
+  ([#69](https://github.com/Bluetooth-Devices/inkbird-ble/pull/69),
+  [`631a28b`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/631a28b8e92e8d0c334b96692a5f8c2001e68859))
+
+
 ## v0.7.1 (2025-03-01)
 
 ### Bug Fixes
