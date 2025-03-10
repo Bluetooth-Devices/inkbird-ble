@@ -14,13 +14,15 @@ import logging
 import struct
 from enum import StrEnum
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from bluetooth_data_tools import short_address
 from bluetooth_sensor_state_data import BluetoothData
 from sensor_state_data import SensorLibrary
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from home_assistant_bluetooth import BluetoothServiceInfo
 
 
@@ -156,12 +158,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         )
 
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
-        if self._device_type in SIXTEEN_BYTE_MODELS:
-            self._update_sixteen_byte_model(data)
-        elif self._device_type in SENSOR_MODELS:
-            self._update_nine_byte_model(data)
-        if self._device_type in BBQ_MODELS:
-            self._update_bbq_model(data, len(data))
+        self._device_type_dispatch[self._device_type](self, data, msg_length)
 
     def _update_bbq_model(self, data: bytes, msg_length: int) -> None:
         """Update a BBQ sensor model."""
@@ -177,7 +174,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 name=f"Temperature Probe {num}",
             )
 
-    def _update_nine_byte_model(self, data: bytes) -> None:
+    def _update_nine_byte_model(self, data: bytes, msg_length: int) -> None:
         """Update the sensor values for a 9 byte model."""
         (temp, hum) = INKBIRD_UNPACK(data[0:4])
         bat = int.from_bytes(data[7:8], "little")
@@ -189,10 +186,23 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         ):
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100)
 
-    def _update_sixteen_byte_model(self, data: bytes) -> None:
+    def _update_sixteen_byte_model(self, data: bytes, msg_length: int) -> None:
         """Update the sensor values for a 16 byte model."""
         (temp, hum) = INKBIRD_UNPACK(data[6:10])
         bat = int.from_bytes(data[10:11], "little")
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
         self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
+
+    _device_type_dispatch: ClassVar[
+        dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
+    ] = {
+        Model.IBBQ_1: _update_bbq_model,
+        Model.IBBQ_2: _update_bbq_model,
+        Model.IBBQ_4: _update_bbq_model,
+        Model.IBBQ_6: _update_bbq_model,
+        Model.IBS_TH: _update_nine_byte_model,
+        Model.IBS_TH2: _update_nine_byte_model,
+        Model.ITH_13_B: _update_sixteen_byte_model,
+        Model.ITH_21_B: _update_sixteen_byte_model,
+    }
