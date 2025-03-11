@@ -36,6 +36,7 @@ class Model(StrEnum):
     IBBQ_6 = "iBBQ-6"
     IBS_TH = "IBS-TH"
     IBS_TH2 = "IBS-TH2"
+    ITH_11_B = "ITH-11-B"
     ITH_13_B = "ITH-13-B"
     ITH_21_B = "ITH-21-B"
 
@@ -47,6 +48,7 @@ MODEL_NAMES = {
     Model.IBBQ_6: "iBBQ-6",
     Model.IBS_TH: "IBS-TH",
     Model.IBS_TH2: "IBS-TH2/P01B",
+    Model.ITH_11_B: "ITH-11-B",
     Model.ITH_13_B: "ITH-13-B",
     Model.ITH_21_B: "ITH-21-B",
 }
@@ -61,13 +63,14 @@ BBQ_LENGTH_TO_TYPE = {
 BBQ_MODELS = {Model.IBBQ_1, Model.IBBQ_2, Model.IBBQ_4, Model.IBBQ_6}
 
 NINE_BYTE_SENSOR_MODELS = {Model.IBS_TH, Model.IBS_TH2}
-SIXTEEN_BYTE_SENSOR_MODELS = {Model.ITH_21_B, Model.ITH_13_B}
+SIXTEEN_BYTE_SENSOR_MODELS = {Model.ITH_11_B, Model.ITH_21_B, Model.ITH_13_B}
 
 SENSOR_MODELS = {*NINE_BYTE_SENSOR_MODELS, *SIXTEEN_BYTE_SENSOR_MODELS}
 
 INKBIRD_NAMES = {
     "sps": Model.IBS_TH,  # 9 byte manufacturer data
     "tps": Model.IBS_TH2,  # 9 byte manufacturer data
+    "ith-11-b": Model.ITH_11_B,  # 16 byte manufacturer data
     "ith-13-b": Model.ITH_13_B,  # 16 byte manufacturer data
     "ith-21-b": Model.ITH_21_B,  # 16 byte manufacturer data
 }
