@@ -1,6 +1,28 @@
 # CHANGELOG
 
 
+## v0.9.0 (2025-03-11)
+
+### Chores
+
+- **deps**: Bump bluetooth-data-tools from 1.23.4 to 1.26.0
+  ([#71](https://github.com/Bluetooth-Devices/inkbird-ble/pull/71),
+  [`1e6ba76`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/1e6ba7694661aaef29f0cdb729df380d166ef88b))
+
+- **deps**: Bump myst-parser from 3.0.1 to 4.0.1
+  ([#72](https://github.com/Bluetooth-Devices/inkbird-ble/pull/72),
+  [`2d4851e`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/2d4851e7b8d02a87633938958415358b24f5ff8f))
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#70](https://github.com/Bluetooth-Devices/inkbird-ble/pull/70),
+  [`66dc43f`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/66dc43f865dbf08bd76d787f125e0dc62b33d19f))
+
+### Features
+
+- Add support for ITH-11-B ([#75](https://github.com/Bluetooth-Devices/inkbird-ble/pull/75),
+  [`e6e48f3`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/e6e48f36ea570a0ae717dd7297837c83b50b206f))
+
+
 ## v0.8.0 (2025-03-10)
 
 ### Chores
