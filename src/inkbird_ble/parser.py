@@ -205,12 +205,16 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
 
 INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
-    **dict.fromkeys(BBQ_MODELS, INKBIRDBluetoothDeviceData._update_bbq_model),
     **dict.fromkeys(
-        NINE_BYTE_SENSOR_MODELS, INKBIRDBluetoothDeviceData._update_nine_byte_model
+        BBQ_MODELS,
+        INKBIRDBluetoothDeviceData._update_bbq_model,  # noqa: SLF001
+    ),
+    **dict.fromkeys(
+        NINE_BYTE_SENSOR_MODELS,
+        INKBIRDBluetoothDeviceData._update_nine_byte_model,  # noqa: SLF001
     ),
     **dict.fromkeys(
         SIXTEEN_BYTE_SENSOR_MODELS,
-        INKBIRDBluetoothDeviceData._update_sixteen_byte_model,
+        INKBIRDBluetoothDeviceData._update_sixteen_byte_model,  # noqa: SLF001
     ),
 }
