@@ -253,33 +253,31 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             finally:
                 await client.disconnect()
 
-        if payload is not None:
-            if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
-                (temp, hum) = INKBIRD_UNPACK(payload[5:9])
-                bat = payload[9]
+        if payload is None:
+            return self._finish_update()
+
+        if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
+            (temp, hum) = INKBIRD_UNPACK(payload[5:9])
+            bat = payload[9]
+            self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
+            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
+            self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
+        elif self._device_type in NINE_BYTE_SENSOR_MODELS:
+            (temp, hum) = INKBIRD_UNPACK(payload[0:4])
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
+            )
+            if self._device_type == Model.IBS_TH or (
+                self._device_type == Model.IBS_TH2 and hum != 0
+            ):
                 self.update_predefined_sensor(
-                    SensorLibrary.TEMPERATURE__CELSIUS, temp / 10
+                    SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
                 )
-                self.update_predefined_sensor(
-                    SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10
-                )
-                self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
-            elif self._device_type in NINE_BYTE_SENSOR_MODELS:
-                (temp, hum) = INKBIRD_UNPACK(payload[0:4])
-                self.update_predefined_sensor(
-                    SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
-                )
-                if self._device_type == Model.IBS_TH or (
-                    self._device_type == Model.IBS_TH2 and hum != 0
-                ):
-                    self.update_predefined_sensor(
-                        SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
-                    )
-                _LOGGER.debug(
-                    "Polling INKBIRD device %s: %s",
-                    ble_device,
-                    payload,
-                )
+            _LOGGER.debug(
+                "Polling INKBIRD device %s: %s",
+                ble_device,
+                payload,
+            )
 
         return self._finish_update()
 
