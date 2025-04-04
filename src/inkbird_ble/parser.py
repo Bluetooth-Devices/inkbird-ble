@@ -17,7 +17,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 
-from bleak.exc import BleakCharacteristicNotFoundError
+from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from bluetooth_data_tools import monotonic_time_coarse, short_address
 from bluetooth_sensor_state_data import BluetoothData, SensorUpdate
@@ -235,6 +235,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # If the first attempt fails, clear the cache and try again.
         # This is needed because the cache may contain old data.
         # If the second attempt fails, an empty SensorUpdate is returned.
+        last_exception: Exception | None = None
         for _ in range(2):
             client = await establish_connection(
                 BleakClientWithServiceCache,
@@ -242,18 +243,24 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 ble_device.name or ble_device.address,
             )
             try:
-                data_char = client.services.get_service(
-                    service_uuid
-                ).get_characteristic(characteristic_uuid)
-                payload = await client.read_gatt_char(data_char)
-            except BleakCharacteristicNotFoundError:
+                service = client.services.get_service(service_uuid)
+                char = service.get_characteristic(characteristic_uuid)
+                payload = await client.read_gatt_char(char)
+            except BleakCharacteristicNotFoundError as exc:
+                last_exception = exc
                 await client.clear_cache()
+            except BleakError as exc:
+                last_exception = exc
+                continue
             else:
                 break
             finally:
                 await client.disconnect()
 
         if payload is None:
+            _LOGGER.debug(
+                "Polling INKBIRD device %s failed: %s", ble_device, last_exception
+            )
             return self._finish_update()
 
         if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
@@ -263,6 +270,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
             self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
         elif self._device_type in NINE_BYTE_SENSOR_MODELS:
+            # Battery doesn't seem to be available for these models
+            # but it is in the advertisement data
             (temp, hum) = INKBIRD_UNPACK(payload[0:4])
             self.update_predefined_sensor(
                 SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
@@ -273,11 +282,6 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 self.update_predefined_sensor(
                     SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
                 )
-            _LOGGER.debug(
-                "Polling INKBIRD device %s: %s",
-                ble_device,
-                payload,
-            )
 
         return self._finish_update()
 
