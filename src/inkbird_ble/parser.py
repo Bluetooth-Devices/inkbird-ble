@@ -71,8 +71,27 @@ SIXTEEN_BYTE_SENSOR_MODELS = {Model.ITH_11_B, Model.ITH_21_B, Model.ITH_13_B}
 
 SENSOR_MODELS = {*NINE_BYTE_SENSOR_MODELS, *SIXTEEN_BYTE_SENSOR_MODELS}
 
-SENSOR_DATA_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
-SENSOR_DATA_CHARACTERISTIC_UUID = UUID("0000fff7-0000-1000-8000-00805f9b34fb")
+
+SIXTEEN_BYTE_SENSOR_DATA_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
+SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID(
+    "0000fff7-0000-1000-8000-00805f9b34fb"
+)
+NINE_BYTE_SENSOR_DATA_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
+NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID("0000fff2-0000-1000-8000-00805f9b34fb")
+
+MODEL_GATT = {
+    **dict.fromkeys(
+        NINE_BYTE_SENSOR_MODELS,
+        (NINE_BYTE_SENSOR_DATA_SERVICE_UUID, NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID),
+    ),
+    **dict.fromkeys(
+        SIXTEEN_BYTE_SENSOR_MODELS,
+        (
+            SIXTEEN_BYTE_SENSOR_DATA_SERVICE_UUID,
+            SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        ),
+    ),
+}
 
 INKBIRD_NAMES = {
     "sps": Model.IBS_TH,  # 9 byte manufacturer data
@@ -206,51 +225,61 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
-        if self._supports_polling:
-            payload: bytes | None = None
-            _LOGGER.debug("Polling INKBIRD device %s", ble_device)
-            # Try to connect to the device and read the data characteristic
-            # up to 2 times.
-            # If the first attempt fails, clear the cache and try again.
-            # This is needed because the cache may contain old data.
-            # If the second attempt fails, an empty SensorUpdate is returned.
-            for _ in range(2):
-                client = await establish_connection(
-                    BleakClientWithServiceCache,
-                    ble_device,
-                    ble_device.name or ble_device.address,
-                )
-                try:
-                    data_char = client.services.get_service(
-                        SENSOR_DATA_SERVICE_UUID
-                    ).get_characteristic(SENSOR_DATA_CHARACTERISTIC_UUID)
-                    payload = await client.read_gatt_char(data_char)
-                except BleakCharacteristicNotFoundError:
-                    await client.clear_cache()
-                else:
-                    break
-                finally:
-                    await client.disconnect()
+        if not self._supports_polling or not self._device_type:
+            return self._finish_update()
+        payload: bytes | None = None
+        _LOGGER.debug("Polling INKBIRD device %s", ble_device)
+        service_uuid, characteristic_uuid = MODEL_GATT[self._device_type]
+        # Try to connect to the device and read the data characteristic
+        # up to 2 times.
+        # If the first attempt fails, clear the cache and try again.
+        # This is needed because the cache may contain old data.
+        # If the second attempt fails, an empty SensorUpdate is returned.
+        for _ in range(2):
+            client = await establish_connection(
+                BleakClientWithServiceCache,
+                ble_device,
+                ble_device.name or ble_device.address,
+            )
+            try:
+                data_char = client.services.get_service(
+                    service_uuid
+                ).get_characteristic(characteristic_uuid)
+                payload = await client.read_gatt_char(data_char)
+            except BleakCharacteristicNotFoundError:
+                await client.clear_cache()
+            else:
+                break
+            finally:
+                await client.disconnect()
 
-            if payload is not None:
-                if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
-                    (temp, hum) = INKBIRD_UNPACK(payload[5:9])
-                    bat = payload[9]
+        if payload is not None:
+            if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
+                (temp, hum) = INKBIRD_UNPACK(payload[5:9])
+                bat = payload[9]
+                self.update_predefined_sensor(
+                    SensorLibrary.TEMPERATURE__CELSIUS, temp / 10
+                )
+                self.update_predefined_sensor(
+                    SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10
+                )
+                self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
+            elif self._device_type in NINE_BYTE_SENSOR_MODELS:
+                (temp, hum) = INKBIRD_UNPACK(payload[0:4])
+                self.update_predefined_sensor(
+                    SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
+                )
+                if self._device_type == Model.IBS_TH or (
+                    self._device_type == Model.IBS_TH2 and hum != 0
+                ):
                     self.update_predefined_sensor(
-                        SensorLibrary.TEMPERATURE__CELSIUS, temp / 10
+                        SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
                     )
-                    self.update_predefined_sensor(
-                        SensorLibrary.BATTERY__PERCENTAGE, bat
-                    )
-                    self.update_predefined_sensor(
-                        SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10
-                    )
-                else:
-                    _LOGGER.debug(
-                        "Polling INKBIRD device %s: %s",
-                        ble_device,
-                        payload,
-                    )
+                _LOGGER.debug(
+                    "Polling INKBIRD device %s: %s",
+                    ble_device,
+                    payload,
+                )
 
         return self._finish_update()
 
