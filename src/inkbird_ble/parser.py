@@ -117,7 +117,6 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Initialize the class."""
         super().__init__()
         self._device_type = try_parse_model(device_type)
-        self._address: str | None = None
         self._last_full_update = 0.0
 
     @property
@@ -132,7 +131,6 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             return
         local_name = service_info.name
         address = service_info.address
-        self._address = address
         lower_name = local_name.lower()
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
@@ -185,21 +183,27 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         This is called every time we get a service_info for a device or if
         called manually.
         """
-        if (
-            self._device_type is None
-            or self._address is None
-            or self._device_type in SENSOR_MODELS
-        ):
+        import pprint
+
+        pprint.pprint(
+            [
+                "poll_needed",
+                service_info,
+                last_poll,
+                self._last_full_update,
+                self._device_type,
+            ]
+        )
+        if self._device_type is None or self._device_type not in SENSOR_MODELS:
             return False
-        return not last_poll or last_poll > MIN_POLL_INTERVAL
+        return (
+            not self._last_full_update
+            or (monotonic_time_coarse() - self._last_full_update) > MIN_POLL_INTERVAL
+        )
 
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
-        if (
-            self._device_type is not None
-            and self._address is not None
-            and self._device_type in SENSOR_MODELS
-        ):
+        if self._device_type is not None and self._device_type in SENSOR_MODELS:
             payload: bytes | None = None
             for _ in range(2):
                 client = await establish_connection(
