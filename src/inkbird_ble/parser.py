@@ -143,6 +143,13 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Return the device type."""
         return self._device_type
 
+    @property
+    def name(self) -> str:
+        """Return the device name."""
+        if (info := self._get_device_info(None)) and info.name:
+            return info.name
+        return self._device_type.name if self._device_type else "Unknown"
+
     def _set_name_and_manufacturer(self, service_info: BluetoothServiceInfo) -> None:
         if self._device_type is None:
             return
@@ -211,11 +218,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             not self._last_full_update
             or (monotonic_time_coarse() - self._last_full_update) > MIN_POLL_INTERVAL
         )
-        _LOGGER.debug(
-            "Poll needed for INKBIRD device %s: %s",
-            service_info,
-            poll_needed,
-        )
+        _LOGGER.debug("Poll needed for INKBIRD device %s: %s", self.name, poll_needed)
         return poll_needed
 
     @property
@@ -228,7 +231,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if not self._supports_polling or not self._device_type:
             return self._finish_update()
         payload: bytes | None = None
-        _LOGGER.debug("Polling INKBIRD device %s", ble_device)
+        _LOGGER.debug("Polling INKBIRD device %s", self.name)
         service_uuid, characteristic_uuid = MODEL_GATT[self._device_type]
         # Try to connect to the device and read the data characteristic
         # up to 2 times.
@@ -259,7 +262,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
         if payload is None:
             _LOGGER.debug(
-                "Polling INKBIRD device %s failed: %s", ble_device, last_exception
+                "Polling INKBIRD device %s failed: %s", self.name, last_exception
             )
             return self._finish_update()
 
