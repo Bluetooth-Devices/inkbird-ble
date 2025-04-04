@@ -124,18 +124,32 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Return the device type."""
         return self._device_type
 
+    def _set_name_and_manufacturer(self, service_info: BluetoothServiceInfo) -> None:
+        if self._device_type is None:
+            return
+        local_name = service_info.name
+        address = service_info.address
+        dev_type_name = MODEL_NAMES[self._device_type]
+        if self._device_type in BBQ_MODELS:
+            self.set_device_name(f"{local_name} {short_address(address)}")
+            self.set_device_type(f"{local_name[0]}{dev_type_name[1:]}")
+        elif self._device_type in SENSOR_MODELS:
+            self.set_device_name(f"{dev_type_name} {short_address(address)}")
+            self.set_device_type(dev_type_name)
+
+        self.set_device_manufacturer("INKBIRD")
+
     def _start_update(self, service_info: BluetoothServiceInfo) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
         if not (manufacturer_data := service_info.manufacturer_data):
+            self._set_name_and_manufacturer(service_info)
             return
-        local_name = service_info.name
-        address = service_info.address
-        lower_name = local_name.lower()
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
         msg_length = len(data)
         if self._device_type is None:
+            lower_name = service_info.name.lower()
             # If we do not know the device type yet, try to determine it
             # from the advertisement data.
             if (lower_name in INKBIRD_NAMES) and (
@@ -147,16 +161,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 self._device_type = BBQ_LENGTH_TO_TYPE[msg_length][0]
             else:
                 return
-
-        dev_type_name = MODEL_NAMES[self._device_type]
-        if self._device_type in BBQ_MODELS:
-            self.set_device_name(f"{local_name} {short_address(address)}")
-            self.set_device_type(f"{local_name[0]}{dev_type_name[1:]}")
-        elif self._device_type in SENSOR_MODELS:
-            self.set_device_name(f"{dev_type_name} {short_address(address)}")
-            self.set_device_type(dev_type_name)
-
-        self.set_device_manufacturer("INKBIRD")
+        self._set_name_and_manufacturer(service_info)
         excludes = MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
         changed_manufacturer_data = self.changed_manufacturer_data(
             service_info, excludes
@@ -183,28 +188,26 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         This is called every time we get a service_info for a device or if
         called manually.
         """
-        import pprint
-
-        pprint.pprint(
-            [
-                "poll_needed",
-                service_info,
-                last_poll,
-                self._last_full_update,
-                self._device_type,
-            ]
-        )
-        if self._device_type is None or self._device_type not in SENSOR_MODELS:
-            return False
-        return (
+        return self._supports_polling and (
             not self._last_full_update
             or (monotonic_time_coarse() - self._last_full_update) > MIN_POLL_INTERVAL
         )
 
+    @property
+    def _supports_polling(self) -> bool:
+        """Return True if the device supports polling."""
+        return self._device_type is not None and self._device_type in SENSOR_MODELS
+
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
-        if self._device_type is not None and self._device_type in SENSOR_MODELS:
+        if self._supports_polling:
             payload: bytes | None = None
+            _LOGGER.debug("Polling INKBIRD device %s", ble_device)
+            # Try to connect to the device and read the data characteristic
+            # up to 2 times.
+            # If the first attempt fails, clear the cache and try again.
+            # This is needed because the cache may contain old data.
+            # If the second attempt fails, an empty SensorUpdate is returned.
             for _ in range(2):
                 client = await establish_connection(
                     BleakClientWithServiceCache,
@@ -224,13 +227,24 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                     await client.disconnect()
 
             if payload is not None:
-                import pprint
-
-                pprint.pprint(["payload", payload])
-                self.set_device_sw_version(payload[2:].decode("utf-8"))
-                self.update_predefined_sensor(
-                    SensorLibrary.BATTERY__PERCENTAGE, payload[0]
-                )
+                if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
+                    (temp, hum) = INKBIRD_UNPACK(payload[5:9])
+                    bat = payload[9]
+                    self.update_predefined_sensor(
+                        SensorLibrary.TEMPERATURE__CELSIUS, temp / 10
+                    )
+                    self.update_predefined_sensor(
+                        SensorLibrary.BATTERY__PERCENTAGE, bat
+                    )
+                    self.update_predefined_sensor(
+                        SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10
+                    )
+                else:
+                    _LOGGER.debug(
+                        "Polling INKBIRD device %s: %s",
+                        ble_device,
+                        payload,
+                    )
 
         return self._finish_update()
 
@@ -251,7 +265,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _update_nine_byte_model(self, data: bytes, msg_length: int) -> None:
         """Update the sensor values for a 9 byte model."""
         (temp, hum) = INKBIRD_UNPACK(data[0:4])
-        bat = int.from_bytes(data[7:8], "little")
+        bat = data[7]
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 100)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
         # Only some TH2 models have humidity
@@ -263,7 +277,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _update_sixteen_byte_model(self, data: bytes, msg_length: int) -> None:
         """Update the sensor values for a 16 byte model."""
         (temp, hum) = INKBIRD_UNPACK(data[6:10])
-        bat = int.from_bytes(data[10:11], "little")
+        bat = data[10]
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
         self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
