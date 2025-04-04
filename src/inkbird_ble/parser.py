@@ -15,14 +15,18 @@ import struct
 from enum import StrEnum
 from functools import lru_cache
 from typing import TYPE_CHECKING, ClassVar
+from uuid import UUID
 
-from bluetooth_data_tools import short_address
-from bluetooth_sensor_state_data import BluetoothData
+from bleak.exc import BleakCharacteristicNotFoundError
+from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
+from bluetooth_data_tools import monotonic_time_coarse, short_address
+from bluetooth_sensor_state_data import BluetoothData, SensorUpdate
 from sensor_state_data import SensorLibrary
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from bleak import BLEDevice
     from home_assistant_bluetooth import BluetoothServiceInfo
 
 
@@ -67,6 +71,9 @@ SIXTEEN_BYTE_SENSOR_MODELS = {Model.ITH_11_B, Model.ITH_21_B, Model.ITH_13_B}
 
 SENSOR_MODELS = {*NINE_BYTE_SENSOR_MODELS, *SIXTEEN_BYTE_SENSOR_MODELS}
 
+SENSOR_DATA_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
+SENSOR_DATA_CHARACTERISTIC_UUID = UUID("0000fff7-0000-1000-8000-00805f9b34fbb")
+
 INKBIRD_NAMES = {
     "sps": Model.IBS_TH,  # 9 byte manufacturer data
     "tps": Model.IBS_TH2,  # 9 byte manufacturer data
@@ -77,6 +84,8 @@ INKBIRD_NAMES = {
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
+
+MIN_POLL_INTERVAL = 180.0
 
 
 @lru_cache
@@ -108,6 +117,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Initialize the class."""
         super().__init__()
         self._device_type = try_parse_model(device_type)
+        self._address: str | None = None
+        self._last_full_update = 0.0
 
     @property
     def device_type(self) -> Model | None:
@@ -121,6 +132,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             return
         local_name = service_info.name
         address = service_info.address
+        self._address = address
         lower_name = local_name.lower()
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
@@ -164,6 +176,59 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
         self._device_type_dispatch[self._device_type](self, data, msg_length)
+        self._last_full_update = monotonic_time_coarse()
+
+    def poll_needed(
+        self, service_info: BluetoothServiceInfo, last_poll: float | None
+    ) -> bool:
+        """
+        This is called every time we get a service_info for a device or if
+        called manually.
+        """
+        if (
+            self._device_type is None
+            or self._address is None
+            or self._device_type in SENSOR_MODELS
+        ):
+            return False
+        return not last_poll or last_poll > MIN_POLL_INTERVAL
+
+    async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
+        """Poll the device for updates."""
+        if (
+            self._device_type is not None
+            and self._address is not None
+            and self._device_type in SENSOR_MODELS
+        ):
+            payload: bytes | None = None
+            for _ in range(2):
+                client = await establish_connection(
+                    BleakClientWithServiceCache,
+                    ble_device,
+                    ble_device.name or ble_device.address,
+                )
+                try:
+                    data_char = client.services.get_service(
+                        SENSOR_DATA_SERVICE_UUID
+                    ).get_characteristic(SENSOR_DATA_CHARACTERISTIC_UUID)
+                    payload = await client.read_gatt_char(data_char)
+                except BleakCharacteristicNotFoundError:
+                    await client.clear_cache()
+                else:
+                    break
+                finally:
+                    await client.disconnect()
+
+            if payload is not None:
+                import pprint
+
+                pprint.pprint(["payload", payload])
+                self.set_device_sw_version(payload[2:].decode("utf-8"))
+                self.update_predefined_sensor(
+                    SensorLibrary.BATTERY__PERCENTAGE, payload[0]
+                )
+
+        return self._finish_update()
 
     def _update_bbq_model(self, data: bytes, msg_length: int) -> None:
         """Update a BBQ sensor model."""
