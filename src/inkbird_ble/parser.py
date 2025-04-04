@@ -188,10 +188,16 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         This is called every time we get a service_info for a device or if
         called manually.
         """
-        return self._supports_polling and (
+        poll_needed = self._supports_polling and (
             not self._last_full_update
             or (monotonic_time_coarse() - self._last_full_update) > MIN_POLL_INTERVAL
         )
+        _LOGGER.debug(
+            "Poll needed for INKBIRD device %s: %s",
+            service_info,
+            poll_needed,
+        )
+        return poll_needed
 
     @property
     def _supports_polling(self) -> bool:
