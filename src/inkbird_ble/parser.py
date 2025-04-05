@@ -136,6 +136,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Initialize the class."""
         super().__init__()
         self._device_type = try_parse_model(device_type)
+        # Last time we got a full update from ADV data
         self._last_full_update = 0.0
 
     @property
