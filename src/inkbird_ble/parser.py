@@ -61,7 +61,7 @@ class ModelInfo:
     model_type: ModelType
     local_name: str | None
     message_length: int
-    notify_length: int
+    notify_length: tuple[int, ...]
     unpacker: Callable[[bytes], tuple[int, ...]]
     service_uuid: UUID | None
     characteristic_uuid: UUID | None
@@ -85,7 +85,7 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=12,
-        notify_length=0,  # no notification
+        notify_length=(0, 0),  # no notification
         unpacker=struct.Struct("<h").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -98,7 +98,7 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=14,
-        notify_length=0,  # no notification
+        notify_length=(0, 0),  # no notification
         unpacker=struct.Struct("<HH").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -111,7 +111,7 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=18,
-        notify_length=0,  # no notification
+        notify_length=(0, 0),  # no notification
         unpacker=struct.Struct("<hhhh").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -124,7 +124,7 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=22,
-        notify_length=0,  # no notification
+        notify_length=(0, 0),  # no notification
         unpacker=struct.Struct("<hhhhhh").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -137,7 +137,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="sps",
         message_length=9,
-        notify_length=0,  # no notification
+        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -150,7 +150,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="tps",
         message_length=9,
-        notify_length=0,  # no notification
+        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -163,7 +163,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ith-11-b",
         message_length=16,
-        notify_length=0,  # no notification
+        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -176,7 +176,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ith-13-b",
         message_length=16,
-        notify_length=0,  # no notification
+        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -189,7 +189,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ith-21-b",
         message_length=16,
-        notify_length=0,  # no notification
+        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -202,7 +202,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ink@iam-t1",
         message_length=17,
-        notify_length=16,  # length of notification
+        notify_length=(16, 12),  # length of notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=UUID("0000ffe0-0000-1000-8000-00805f9b34fb"),
         characteristic_uuid=None,
@@ -377,18 +377,28 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Return True if the device supports polling."""
         return self._device_type is not None and self._device_type in SENSOR_MODELS
 
-    async def _start_notify(self, client: BleakClientWithServiceCache) -> bytes:
+    async def _start_notify(
+        self, client: BleakClientWithServiceCache
+    ) -> dict[int, bytes]:
         future = asyncio.get_running_loop().create_future()
         assert self._device_type
         dev_info = MODEL_INFO[self._device_type]
-        expected_length = dev_info.notify_length
+        expected_lengths = set(dev_info.notify_length)
         notify_uuid = dev_info.notify_uuid
+        results: dict[int, bytes] = {}
 
         def _notify_callback(sender: BleakGATTCharacteristic, data: bytearray) -> None:
             """Callback for notifications."""
             _LOGGER.debug("Received notification from %s: %s", sender, data)
-            if not future.done() and len(data) == expected_length:
-                future.set_result(data)
+            data_len = len(data)
+            if data_len not in expected_lengths:
+                _LOGGER.debug(
+                    "Unexpected notification length %d from %s", data_len, sender
+                )
+                return
+            results[data_len] = data
+            if not future.done() and len(results) == len(expected_lengths):
+                future.set_result(results)
 
         async with asyncio.timeout(
             610
@@ -396,7 +406,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             await client.start_notify(notify_uuid, _notify_callback)
             return await future
 
-    async def _async_connect_and_read(self, ble_device: BLEDevice) -> bytes:
+    async def _async_connect_and_read(
+        self, ble_device: BLEDevice
+    ) -> bytes | dict[int, bytes]:
         """Connect to the device and read the data characteristic."""
         _LOGGER.debug("Polling INKBIRD device %s", self.name)
         if TYPE_CHECKING:
@@ -437,26 +449,36 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Poll the device for updates."""
         payload = await self._async_connect_and_read(ble_device)
         if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
+            assert isinstance(payload, bytes)
             self._update_sixteen_byte_model_from_raw(payload[5:9], payload[9])
         elif self._device_type in NINE_BYTE_SENSOR_MODELS:
             # Battery doesn't seem to be available for these models
             # but it is in the advertisement data
+            assert isinstance(payload, bytes)
             self._update_nine_byte_model_from_raw(payload[0:4], None)
         else:  # IAM-T1
-            sign = payload[4] & 0xF
-            temp = payload[5] << 8 | payload[6]
+            assert isinstance(payload, dict)
+            data_16 = payload[16]
+            data_12 = payload[12]
+            in_f = data_12[10] & 0xF
+            sign = data_16[4] & 0xF
+            temp = data_16[5] << 8 | data_16[6]
+            signed_temp = (temp if sign == 0 else -temp) / 10
+            if in_f:
+                # Convert to Celsius
+                signed_temp = round((signed_temp - 32) * 5 / 9, 2)
             self.update_predefined_sensor(
-                SensorLibrary.TEMPERATURE__CELSIUS, (temp if sign == 0 else -temp) / 10
+                SensorLibrary.TEMPERATURE__CELSIUS, signed_temp
             )
             self.update_predefined_sensor(
-                SensorLibrary.HUMIDITY__PERCENTAGE, (payload[7] << 8 | payload[8]) / 10
+                SensorLibrary.HUMIDITY__PERCENTAGE, (data_16[7] << 8 | data_16[8]) / 10
             )
             self.update_predefined_sensor(
                 SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION,
-                payload[9] << 8 | payload[10],
+                data_16[9] << 8 | data_16[10],
             )
             self.update_predefined_sensor(
-                SensorLibrary.PRESSURE__HPA, payload[11] << 8 | payload[12]
+                SensorLibrary.PRESSURE__HPA, data_16[11] << 8 | data_16[12]
             )
         return self._finish_update()
 

@@ -1586,6 +1586,8 @@ async def test_passive_polling_iam_t1_f() -> None:
     async def start_notify_mock(
         uuid: UUID, callback: Callable[[UUID, bytes], None]
     ) -> None:
+        callback(uuid, b"U")
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x01\x11")
         callback(uuid, b"U\xaa\x01\x10\x10\x03\x0b\x01\xd6\x02\xe3\x03\xf1\x01\x00\xcf")
 
     mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
@@ -1640,7 +1642,7 @@ async def test_passive_polling_iam_t1_f() -> None:
             DeviceKey(key="temperature", device_id=None): SensorValue(
                 device_key=DeviceKey(key="temperature", device_id=None),
                 name="Temperature",
-                native_value=77.9,
+                native_value=25.5,
             ),
             DeviceKey(key="humidity", device_id=None): SensorValue(
                 device_key=DeviceKey(key="humidity", device_id=None),
