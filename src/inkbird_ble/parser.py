@@ -61,6 +61,7 @@ class ModelInfo:
     model_type: ModelType
     local_name: str | None
     message_length: int
+    notify_length: int
     unpacker: Callable[[bytes], tuple[int, ...]]
     service_uuid: UUID | None
     characteristic_uuid: UUID | None
@@ -84,6 +85,7 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=12,
+        notify_length=0,  # no notification
         unpacker=struct.Struct("<h").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -96,6 +98,7 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=14,
+        notify_length=0,  # no notification
         unpacker=struct.Struct("<HH").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -108,6 +111,7 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=18,
+        notify_length=0,  # no notification
         unpacker=struct.Struct("<hhhh").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -120,6 +124,7 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=22,
+        notify_length=0,  # no notification
         unpacker=struct.Struct("<hhhhhh").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -132,6 +137,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="sps",
         message_length=9,
+        notify_length=0,  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -144,6 +150,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="tps",
         message_length=9,
+        notify_length=0,  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -156,6 +163,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ith-11-b",
         message_length=16,
+        notify_length=0,  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -168,6 +176,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ith-13-b",
         message_length=16,
+        notify_length=0,  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -180,6 +189,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ith-21-b",
         message_length=16,
+        notify_length=0,  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -192,6 +202,7 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ink@iam-t1",
         message_length=17,
+        notify_length=16,  # length of notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=UUID("0000ffe0-0000-1000-8000-00805f9b34fb"),
         characteristic_uuid=None,
@@ -366,15 +377,17 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Return True if the device supports polling."""
         return self._device_type is not None and self._device_type in SENSOR_MODELS
 
-    async def _start_notify(
-        self, client: BleakClientWithServiceCache, notify_uuid: UUID
-    ) -> bytes:
+    async def _start_notify(self, client: BleakClientWithServiceCache) -> bytes:
         future = asyncio.get_running_loop().create_future()
+        assert self._device_type
+        dev_info = MODEL_INFO[self._device_type]
+        expected_length = dev_info.notify_length
+        notify_uuid = dev_info.notify_uuid
 
         def _notify_callback(sender: BleakGATTCharacteristic, data: bytearray) -> None:
             """Callback for notifications."""
             _LOGGER.debug("Received notification from %s: %s", sender, data)
-            if not future.done():
+            if not future.done() and len(data) == expected_length:
                 future.set_result(data)
 
         async with asyncio.timeout(
@@ -403,8 +416,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             )
             try:
                 service = client.services.get_service(dev_info.service_uuid)
-                if notify_uuid := dev_info.notify_uuid:
-                    return await self._start_notify(client, notify_uuid)
+                if dev_info.notify_uuid:
+                    return await self._start_notify(client)
                 char = service.get_characteristic(dev_info.characteristic_uuid)
                 return await client.read_gatt_char(char)
             except BleakCharacteristicNotFoundError:

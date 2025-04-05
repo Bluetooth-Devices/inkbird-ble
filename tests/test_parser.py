@@ -1565,8 +1565,8 @@ async def test_passive_polling_fails_generic_bleak_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_passive_polling_iam_t1() -> None:
-    """Test polling with passing data."""
+async def test_passive_polling_iam_t1_f() -> None:
+    """Test polling with passing data in F."""
     parser = INKBIRDBluetoothDeviceData(Model.IAM_T1)
     assert parser.device_type == Model.IAM_T1
     service_info = BluetoothServiceInfo(
@@ -1651,6 +1651,112 @@ async def test_passive_polling_iam_t1() -> None:
                 device_key=DeviceKey(key="carbon_dioxide", device_id=None),
                 name="Carbon Dioxide",
                 native_value=739,
+            ),
+            DeviceKey(key="pressure", device_id=None): SensorValue(
+                device_key=DeviceKey(key="pressure", device_id=None),
+                name="Pressure",
+                native_value=1009,
+            ),
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-44,
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_passive_polling_iam_t1_c() -> None:
+    """Test polling with passing data in C."""
+    parser = INKBIRDBluetoothDeviceData(Model.IAM_T1)
+    assert parser.device_type == Model.IAM_T1
+    service_info = BluetoothServiceInfo(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.supported(service_info) is True
+    assert parser.poll_needed(service_info, None) is True
+    disconnect_mock = AsyncMock()
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x00\x10")
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xfe\x01\xd6\x02\xd9\x03\xf1\x01\x00\xb5")
+
+    mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(
+                address="62:00:A1:3C:AE:7B",
+                name="Ink@IAM-T1",
+                details={},
+                rssi=-60,
+            )
+        )
+    assert update == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="IAM-T1 AE7B",
+                model="IAM-T1",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="temperature", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                device_class=SensorDeviceClass.TEMPERATURE,
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                device_class=SensorDeviceClass.HUMIDITY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+            DeviceKey(key="carbon_dioxide", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="carbon_dioxide", device_id=None),
+                device_class=SensorDeviceClass.CO2,
+                native_unit_of_measurement=Units.CONCENTRATION_PARTS_PER_MILLION,
+            ),
+            DeviceKey(key="pressure", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="pressure", device_id=None),
+                device_class=SensorDeviceClass.PRESSURE,
+                native_unit_of_measurement=Units.PRESSURE_HPA,
+            ),
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="temperature", device_id=None): SensorValue(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
+                native_value=25.4,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorValue(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                name="Humidity",
+                native_value=47.0,
+            ),
+            DeviceKey(key="carbon_dioxide", device_id=None): SensorValue(
+                device_key=DeviceKey(key="carbon_dioxide", device_id=None),
+                name="Carbon Dioxide",
+                native_value=729,
             ),
             DeviceKey(key="pressure", device_id=None): SensorValue(
                 device_key=DeviceKey(key="pressure", device_id=None),
