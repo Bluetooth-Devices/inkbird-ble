@@ -1,6 +1,15 @@
 # CHANGELOG
 
 
+## v0.10.1 (2025-04-05)
+
+### Bug Fixes
+
+- Pytest-asyncio should have been a dev dep
+  ([#84](https://github.com/Bluetooth-Devices/inkbird-ble/pull/84),
+  [`d767490`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/d767490f5dfb00f25c9ec5967228374096704bb2))
+
+
 ## v0.10.0 (2025-04-05)
 
 ### Chores
