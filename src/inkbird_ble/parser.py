@@ -236,7 +236,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # up to 2 times.
         # If the first attempt fails, clear the cache and try again.
         # This is needed because the cache may contain old data.
-        # If the second attempt fails, an empty SensorUpdate is returned.
+        # If the second attempt fails, raise an error.
         for attempt in range(2):
             client = await establish_connection(
                 BleakClientWithServiceCache,
