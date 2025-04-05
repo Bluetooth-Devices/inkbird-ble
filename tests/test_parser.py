@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bluetooth_sensor_state_data import BluetoothServiceInfo, DeviceClass, SensorUpdate
 from sensor_state_data import (
     DeviceKey,
@@ -1458,3 +1459,85 @@ async def test_passive_polling_ith_11_b() -> None:
         binary_entity_values={},
         events={},
     )
+
+
+@pytest.mark.asyncio
+async def test_passive_polling_fails_missing_char() -> None:
+    """Test polling with passing data."""
+    parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
+    assert parser.device_type == Model.ITH_11_B
+    service_info = BluetoothServiceInfo(
+        name="N0BYD",
+        manufacturer_data={},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.poll_needed(service_info, None) is True
+    read_gatt_char_mock = AsyncMock(side_effect=BleakCharacteristicNotFoundError(1))
+    disconnect_mock = AsyncMock()
+    clear_cache_mock = AsyncMock()
+    mock_client = MagicMock(
+        read_gatt_char=read_gatt_char_mock,
+        disconnect=disconnect_mock,
+        clear_cache=clear_cache_mock,
+    )
+
+    with (
+        pytest.raises(BleakCharacteristicNotFoundError),
+        patch("inkbird_ble.parser.establish_connection", return_value=mock_client),
+    ):
+        await parser.async_poll(
+            BLEDevice(
+                address="aa:bb:cc:dd:ee:ff",
+                name="N0BYD",
+                details={},
+                rssi=-60,
+            )
+        )
+
+    clear_cache_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_passive_polling_fails_generic_bleak_error() -> None:
+    """Test polling with passing data."""
+    parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
+    assert parser.device_type == Model.ITH_11_B
+    service_info = BluetoothServiceInfo(
+        name="N0BYD",
+        manufacturer_data={},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.poll_needed(service_info, None) is True
+    read_gatt_char_mock = AsyncMock(side_effect=BleakError)
+    disconnect_mock = AsyncMock()
+    clear_cache_mock = AsyncMock()
+    mock_client = MagicMock(
+        read_gatt_char=read_gatt_char_mock,
+        disconnect=disconnect_mock,
+        clear_cache=clear_cache_mock,
+    )
+
+    with (
+        pytest.raises(BleakError),
+        patch("inkbird_ble.parser.establish_connection", return_value=mock_client),
+    ):
+        await parser.async_poll(
+            BLEDevice(
+                address="aa:bb:cc:dd:ee:ff",
+                name="N0BYD",
+                details={},
+                rssi=-60,
+            )
+        )
+
+    clear_cache_mock.assert_not_awaited()

@@ -249,8 +249,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 char = service.get_characteristic(characteristic_uuid)
                 return await client.read_gatt_char(char)
             except BleakCharacteristicNotFoundError:
-                await client.clear_cache()
                 if attempt == 0:
+                    await client.clear_cache()
                     continue
                 raise
             except BleakError:
@@ -263,8 +263,6 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
-        if not self._supports_polling:
-            return self._finish_update()
         payload = await self._async_connect_and_read(ble_device)
         if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
             self._update_sixteen_byte_model_from_raw(payload[5:9], payload[9])
@@ -272,7 +270,6 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # Battery doesn't seem to be available for these models
             # but it is in the advertisement data
             self._update_nine_byte_model_from_raw(payload[0:4], None)
-
         return self._finish_update()
 
     def _update_bbq_model(self, data: bytes, msg_length: int) -> None:
