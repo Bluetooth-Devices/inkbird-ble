@@ -33,7 +33,6 @@ bluetooth-sensor-state-data = ">=1.6.1"
 sensor-state-data = ">=2.2.0"
 bluetooth-data-tools = ">=0.1.2"
 bleak-retry-connector = ">=1.20.0"
-pytest-asyncio = "^0.26.0"
 
 [tool.poetry.extras]
 docs = [
@@ -45,6 +44,9 @@ docs = [
 [tool.poetry.dev-dependencies]
 pytest = "^8.3"
 pytest-cov = "^6.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest-asyncio = "^0.26.0"
 
 [tool.semantic_release]
 branch = "main"
