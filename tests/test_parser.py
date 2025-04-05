@@ -19,7 +19,8 @@ from inkbird_ble.parser import INKBIRDBluetoothDeviceData, Model
 
 
 def test_can_create():
-    INKBIRDBluetoothDeviceData()
+    parser = INKBIRDBluetoothDeviceData()
+    assert parser.name == "Unknown"
 
 
 def test_unsupported():
