@@ -268,22 +268,12 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
             (temp, hum) = INKBIRD_UNPACK(payload[5:9])
             bat = payload[9]
-            self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
-            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
-            self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
+            self._update_sixteen_byte_model_from_raw(temp, hum, bat)
         elif self._device_type in NINE_BYTE_SENSOR_MODELS:
+            (temp, hum) = INKBIRD_UNPACK(payload[0:4])
             # Battery doesn't seem to be available for these models
             # but it is in the advertisement data
-            (temp, hum) = INKBIRD_UNPACK(payload[0:4])
-            self.update_predefined_sensor(
-                SensorLibrary.TEMPERATURE__CELSIUS, temp / 100
-            )
-            if self._device_type == Model.IBS_TH or (
-                self._device_type == Model.IBS_TH2 and hum != 0
-            ):
-                self.update_predefined_sensor(
-                    SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100
-                )
+            self._update_nine_byte_model_from_raw(temp, hum, None)
 
         return self._finish_update()
 
@@ -305,6 +295,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Update the sensor values for a 9 byte model."""
         (temp, hum) = INKBIRD_UNPACK(data[0:4])
         bat = data[7]
+        self._update_nine_byte_model_from_raw(temp, hum, bat)
+
+    def _update_nine_byte_model_from_raw(
+        self, temp: int, hum: int, bat: int | None
+    ) -> None:
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 100)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
         # Only some TH2 models have humidity
@@ -317,6 +312,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Update the sensor values for a 16 byte model."""
         (temp, hum) = INKBIRD_UNPACK(data[6:10])
         bat = data[10]
+        self._update_sixteen_byte_model_from_raw(temp, hum, bat)
+
+    def _update_sixteen_byte_model_from_raw(
+        self, temp: int, hum: int, bat: int
+    ) -> None:
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
         self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
