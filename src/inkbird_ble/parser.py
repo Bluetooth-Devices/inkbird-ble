@@ -302,12 +302,15 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self, temp: int, hum: int, bat: int | None
     ) -> None:
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 100)
-        self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
         # Only some TH2 models have humidity
         if self._device_type == Model.IBS_TH or (
             self._device_type == Model.IBS_TH2 and hum != 0
         ):
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100)
+        if bat is not None:
+            # Battery is only available in the advertisement data
+            # for some models
+            self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
 
     def _update_sixteen_byte_model(self, data: bytes, msg_length: int) -> None:
         """Update the sensor values for a 16 byte model."""
