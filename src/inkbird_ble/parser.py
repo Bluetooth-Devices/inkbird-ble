@@ -377,7 +377,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             if not future.done():
                 future.set_result(data)
 
-        async with asyncio.timeout(10):
+        async with asyncio.timeout(
+            610
+        ):  # Can take up to 10 minutes to get a notification
             await client.start_notify(notify_uuid, _notify_callback)
             return await future
 
@@ -428,8 +430,6 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # but it is in the advertisement data
             self._update_nine_byte_model_from_raw(payload[0:4], None)
         else:  # IAM-T1
-            _LOGGER.debug("Parsing IAM-T1 data: %s", payload)
-            # IAM-T1 data is 17 bytes long
             sign = payload[4] & 0xF
             temp = payload[5] << 8 | payload[6]
             self.update_predefined_sensor(
