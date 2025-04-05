@@ -154,6 +154,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _set_name_and_manufacturer(self, service_info: BluetoothServiceInfo) -> None:
         if self._device_type is None:
             return
+        self.set_device_manufacturer("INKBIRD")
         local_name = service_info.name
         address = service_info.address
         dev_type_name = MODEL_NAMES[self._device_type]
@@ -163,8 +164,6 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         elif self._device_type in SENSOR_MODELS:
             self.set_device_name(f"{dev_type_name} {short_address(address)}")
             self.set_device_type(dev_type_name)
-
-        self.set_device_manufacturer("INKBIRD")
 
     def _start_update(self, service_info: BluetoothServiceInfo) -> None:
         """Update from BLE advertisement data."""
