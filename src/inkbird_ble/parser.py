@@ -226,20 +226,18 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Return True if the device supports polling."""
         return self._device_type is not None and self._device_type in SENSOR_MODELS
 
-    async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
-        """Poll the device for updates."""
-        if not self._supports_polling or not self._device_type:
-            return self._finish_update()
-        payload: bytes | None = None
+    async def _async_connect_and_read(self, ble_device: BLEDevice) -> bytes:
+        """Connect to the device and read the data characteristic."""
         _LOGGER.debug("Polling INKBIRD device %s", self.name)
+        if TYPE_CHECKING:
+            assert self._device_type is not None
         service_uuid, characteristic_uuid = MODEL_GATT[self._device_type]
         # Try to connect to the device and read the data characteristic
         # up to 2 times.
         # If the first attempt fails, clear the cache and try again.
         # This is needed because the cache may contain old data.
         # If the second attempt fails, an empty SensorUpdate is returned.
-        last_exception: Exception | None = None
-        for _ in range(2):
+        for attempt in range(2):
             client = await establish_connection(
                 BleakClientWithServiceCache,
                 ble_device,
@@ -248,24 +246,25 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             try:
                 service = client.services.get_service(service_uuid)
                 char = service.get_characteristic(characteristic_uuid)
-                payload = await client.read_gatt_char(char)
-            except BleakCharacteristicNotFoundError as exc:
-                last_exception = exc
+                return await client.read_gatt_char(char)
+            except BleakCharacteristicNotFoundError:
                 await client.clear_cache()
-            except BleakError as exc:
-                last_exception = exc
-                continue
-            else:
-                break
+                if attempt == 0:
+                    continue
+                raise
+            except BleakError:
+                if attempt == 0:
+                    continue
+                raise
             finally:
                 await client.disconnect()
+        raise AssertionError("unreachable")  # pragma: no cover
 
-        if payload is None:
-            _LOGGER.debug(
-                "Polling INKBIRD device %s failed: %s", self.name, last_exception
-            )
+    async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
+        """Poll the device for updates."""
+        if not self._supports_polling:
             return self._finish_update()
-
+        payload = await self._async_connect_and_read(ble_device)
         if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
             (temp, hum) = INKBIRD_UNPACK(payload[5:9])
             bat = payload[9]
