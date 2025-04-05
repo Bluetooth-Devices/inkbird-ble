@@ -38,6 +38,21 @@ def test_unsupported():
     assert parser.device_type is None
 
 
+def test_unsupported_with_manufacturer_data():
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = BluetoothServiceInfo(
+        name="x",
+        manufacturer_data={2044: b"\xc7\x12\x00\xc8=V\x06"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    assert parser.supported(service_info) is False
+    assert parser.device_type is None
+
+
 def test_sps_with_invalid_model_passed():
     parser = INKBIRDBluetoothDeviceData("invalid")
     service_info = BluetoothServiceInfo(
