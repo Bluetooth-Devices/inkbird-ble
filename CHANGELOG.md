@@ -1,6 +1,77 @@
 # CHANGELOG
 
 
+## v0.10.0 (2025-04-05)
+
+### Chores
+
+- Update deps ([#83](https://github.com/Bluetooth-Devices/inkbird-ble/pull/83),
+  [`265bfb2`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/265bfb2a7840451600a633749f19c2f85476778f))
+
+- Updating coverage (7.7.1 -> 7.8.0) - Updating cryptography (44.0.1 -> 44.0.2) - Downgrading
+  home-assistant-bluetooth (1.13.1 -> 1.10.4) - Updating pytest-cov (6.0.0 -> 6.1.0)
+
+- **deps**: Bump bluetooth-data-tools from 1.26.0 to 1.26.1
+  ([#78](https://github.com/Bluetooth-Devices/inkbird-ble/pull/78),
+  [`c101274`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/c101274f83fae510b0b295b6256b5e5dff3c284a))
+
+- **deps**: Bump bluetooth-data-tools from 1.26.1 to 1.27.0
+  ([#80](https://github.com/Bluetooth-Devices/inkbird-ble/pull/80),
+  [`839c14b`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/839c14bed2e71d5a818caa0080b33cc541a82c22))
+
+chore(deps): bump bluetooth-data-tools from 1.26.1 to 1.26.2
+
+Bumps [bluetooth-data-tools](https://github.com/bdraco/bluetooth-data-tools) from 1.26.1 to 1.26.2.
+  - [Release notes](https://github.com/bdraco/bluetooth-data-tools/releases) -
+  [Changelog](https://github.com/Bluetooth-Devices/bluetooth-data-tools/blob/main/CHANGELOG.md) -
+  [Commits](https://github.com/bdraco/bluetooth-data-tools/compare/v1.26.1...v1.26.2)
+
+--- updated-dependencies: - dependency-name: bluetooth-data-tools dependency-type: direct:production
+
+update-type: version-update:semver-patch ...
+
+Signed-off-by: dependabot[bot] <support@github.com>
+
+Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+
+- **deps**: Bump sphinx from 7.4.7 to 8.2.3
+  ([#79](https://github.com/Bluetooth-Devices/inkbird-ble/pull/79),
+  [`bbd4903`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/bbd490301d7d16c35956f3979eda687486f03499))
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#77](https://github.com/Bluetooth-Devices/inkbird-ble/pull/77),
+  [`1afa92e`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/1afa92eade4e13a6c5913a4e761b35b433400c06))
+
+* chore(pre-commit.ci): pre-commit autoupdate
+
+updates: - [github.com/astral-sh/ruff-pre-commit: v0.9.10 →
+  v0.11.2](https://github.com/astral-sh/ruff-pre-commit/compare/v0.9.10...v0.11.2)
+
+* chore(pre-commit.ci): auto fixes
+
+* chore: fixes
+
+---------
+
+Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+
+Co-authored-by: J. Nick Koston <nick@koston.org>
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#81](https://github.com/Bluetooth-Devices/inkbird-ble/pull/81),
+  [`c271c48`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/c271c480640b181225dcfb6491107424312b72e1))
+
+updates: - [github.com/PyCQA/flake8: 7.1.2 →
+  7.2.0](https://github.com/PyCQA/flake8/compare/7.1.2...7.2.0)
+
+Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+
+### Features
+
+- Add polling support for sensors ([#82](https://github.com/Bluetooth-Devices/inkbird-ble/pull/82),
+  [`0327676`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/032767655d4580c0f2775a19517776e6fba711fb))
+
+
 ## v0.9.0 (2025-03-11)
 
 ### Chores
