@@ -9,6 +9,7 @@ MIT License applies.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import struct
@@ -27,7 +28,7 @@ from sensor_state_data import SensorLibrary
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from bleak import BLEDevice
+    from bleak import BleakGATTCharacteristic, BLEDevice
     from home_assistant_bluetooth import BluetoothServiceInfo
 
 
@@ -63,6 +64,7 @@ class ModelInfo:
     unpacker: Callable[[bytes], tuple[int, ...]]
     service_uuid: UUID | None
     characteristic_uuid: UUID | None
+    notify_uuid: UUID | None
     use_local_name_for_device: bool
     parse_adv: bool
 
@@ -85,6 +87,7 @@ MODEL_INFO = {
         unpacker=struct.Struct("<h").unpack,
         service_uuid=None,
         characteristic_uuid=None,
+        notify_uuid=None,
         use_local_name_for_device=True,
         parse_adv=True,
     ),
@@ -96,6 +99,7 @@ MODEL_INFO = {
         unpacker=struct.Struct("<HH").unpack,
         service_uuid=None,
         characteristic_uuid=None,
+        notify_uuid=None,
         use_local_name_for_device=True,
         parse_adv=True,
     ),
@@ -107,6 +111,7 @@ MODEL_INFO = {
         unpacker=struct.Struct("<hhhh").unpack,
         service_uuid=None,
         characteristic_uuid=None,
+        notify_uuid=None,
         use_local_name_for_device=True,
         parse_adv=True,
     ),
@@ -118,6 +123,7 @@ MODEL_INFO = {
         unpacker=struct.Struct("<hhhhhh").unpack,
         service_uuid=None,
         characteristic_uuid=None,
+        notify_uuid=None,
         use_local_name_for_device=True,
         parse_adv=True,
     ),
@@ -129,6 +135,7 @@ MODEL_INFO = {
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
     ),
@@ -140,6 +147,7 @@ MODEL_INFO = {
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
     ),
@@ -151,6 +159,7 @@ MODEL_INFO = {
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
     ),
@@ -162,6 +171,7 @@ MODEL_INFO = {
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
     ),
@@ -173,6 +183,7 @@ MODEL_INFO = {
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
     ),
@@ -183,7 +194,8 @@ MODEL_INFO = {
         message_length=17,
         unpacker=INKBIRD_UNPACK,
         service_uuid=UUID("0000ffe0-0000-1000-8000-00805f9b34fb"),
-        characteristic_uuid=UUID("0000ffe4-0000-1000-8000-00805f9b34fb"),
+        characteristic_uuid=None,
+        notify_uuid=UUID("0000ffe4-0000-1000-8000-00805f9b34fb"),
         use_local_name_for_device=False,
         parse_adv=False,
     ),
@@ -354,6 +366,21 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Return True if the device supports polling."""
         return self._device_type is not None and self._device_type in SENSOR_MODELS
 
+    async def _start_notify(
+        self, client: BleakClientWithServiceCache, notify_uuid: UUID
+    ) -> bytes:
+        future = asyncio.get_running_loop().create_future()
+
+        def _notify_callback(sender: BleakGATTCharacteristic, data: bytearray) -> None:
+            """Callback for notifications."""
+            _LOGGER.debug("Received notification from %s: %s", sender, data)
+            if not future.done():
+                future.set_result(data)
+
+        async with asyncio.timeout(10):
+            await client.start_notify(notify_uuid, _notify_callback)
+            return await future
+
     async def _async_connect_and_read(self, ble_device: BLEDevice) -> bytes:
         """Connect to the device and read the data characteristic."""
         _LOGGER.debug("Polling INKBIRD device %s", self.name)
@@ -365,6 +392,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # If the first attempt fails, clear the cache and try again.
         # This is needed because the cache may contain old data.
         # If the second attempt fails, raise an error.
+
         for attempt in range(2):
             client = await establish_connection(
                 BleakClientWithServiceCache,
@@ -373,6 +401,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             )
             try:
                 service = client.services.get_service(dev_info.service_uuid)
+                if notify_uuid := dev_info.notify_uuid:
+                    return await self._start_notify(client, notify_uuid)
                 char = service.get_characteristic(dev_info.characteristic_uuid)
                 return await client.read_gatt_char(char)
             except BleakCharacteristicNotFoundError:
