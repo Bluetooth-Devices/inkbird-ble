@@ -218,6 +218,7 @@ SIXTEEN_BYTE_SENSOR_MODELS = {
 SENSOR_MODELS = {
     *NINE_BYTE_SENSOR_MODELS,
     *SIXTEEN_BYTE_SENSOR_MODELS,
+    Model.IAM_T1,
 }
 BBQ_LENGTH_TO_TYPE = {
     model_info.message_length: model_type
@@ -397,6 +398,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # but it is in the advertisement data
             self._update_nine_byte_model_from_raw(payload[0:4], None)
         else:  # IAM-T1
+            _LOGGER.debug("Parsing IAM-T1 data: %s", payload)
+            # IAM-T1 data is 17 bytes long
             sign = payload[4] & 0xF
             temp = payload[5] << 8 | payload[6]
             self.update_predefined_sensor(
