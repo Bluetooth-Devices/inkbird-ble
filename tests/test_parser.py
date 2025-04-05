@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
+from bleak.backends.device import BLEDevice
 from bluetooth_sensor_state_data import BluetoothServiceInfo, DeviceClass, SensorUpdate
 from sensor_state_data import (
     DeviceKey,
@@ -1101,6 +1104,8 @@ def test_ith_11_b():
         source="local",
     )
     result = parser.update(service_info)
+    assert parser.name == "ITH-11-B EEFF"
+    assert parser.poll_needed(service_info, None) is False
     assert parser.device_type is Model.ITH_11_B
     assert result == SensorUpdate(
         title=None,
@@ -1228,6 +1233,225 @@ def test_ith_11_b():
                 device_key=DeviceKey(key="temperature", device_id=None),
                 name="Temperature",
                 native_value=-0.2,
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
+
+
+def test_passive_data_needs_polling() -> None:
+    """Test passive data need polling."""
+    parser = INKBIRDBluetoothDeviceData(Model.IBS_TH)
+    assert parser.device_type == Model.IBS_TH
+    service_info = BluetoothServiceInfo(
+        name="N0BYD",
+        manufacturer_data={},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(service_info)
+    assert parser.poll_needed(service_info, None) is True
+    assert parser.name == "IBS-TH EEFF"
+    assert result == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="IBS-TH EEFF",
+                model="IBS-TH",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-60,
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_passive_polling_ibs_th() -> None:
+    """Test polling with passing data."""
+    parser = INKBIRDBluetoothDeviceData(Model.IBS_TH)
+    assert parser.device_type == Model.IBS_TH
+    service_info = BluetoothServiceInfo(
+        name="N0BYD",
+        manufacturer_data={},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.poll_needed(service_info, None) is True
+    read_gatt_char_mock = AsyncMock(return_value=b"\x09\x09\x00\x04\xe37\x08")
+    disconnect_mock = AsyncMock()
+    mock_client = MagicMock(
+        read_gatt_char=read_gatt_char_mock, disconnect=disconnect_mock
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(
+                address="aa:bb:cc:dd:ee:ff",
+                name="N0BYD",
+                details={},
+                rssi=-60,
+            )
+        )
+    assert update == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="IBS-TH EEFF",
+                model="IBS-TH",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                device_class=SensorDeviceClass.TEMPERATURE,
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                device_class=SensorDeviceClass.HUMIDITY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-60,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorValue(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
+                native_value=23.13,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorValue(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                name="Humidity",
+                native_value=10.24,
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
+
+
+@pytest.mark.asyncio
+async def test_passive_polling_ith_11_b() -> None:
+    """Test polling with passing data."""
+    parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
+    assert parser.device_type == Model.ITH_11_B
+    service_info = BluetoothServiceInfo(
+        name="N0BYD",
+        manufacturer_data={},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.poll_needed(service_info, None) is True
+    read_gatt_char_mock = AsyncMock(return_value=b"rtdth\xd8\x00\xef\x01a\x00\x90\x04")
+    disconnect_mock = AsyncMock()
+    mock_client = MagicMock(
+        read_gatt_char=read_gatt_char_mock, disconnect=disconnect_mock
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(
+                address="aa:bb:cc:dd:ee:ff",
+                name="N0BYD",
+                details={},
+                rssi=-60,
+            )
+        )
+    assert update == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="ITH-11-B EEFF",
+                model="ITH-11-B",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                device_class=SensorDeviceClass.TEMPERATURE,
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                device_class=SensorDeviceClass.HUMIDITY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+            DeviceKey(key="battery", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="battery", device_id=None),
+                device_class=SensorDeviceClass.BATTERY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-60,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorValue(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
+                native_value=21.6,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorValue(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                name="Humidity",
+                native_value=49.5,
+            ),
+            DeviceKey(key="battery", device_id=None): SensorValue(
+                device_key=DeviceKey(key="battery", device_id=None),
+                name="Battery",
+                native_value=97,
             ),
         },
         binary_entity_descriptions={},
