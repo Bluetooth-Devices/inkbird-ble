@@ -44,6 +44,7 @@ class Model(StrEnum):
     ITH_11_B = "ITH-11-B"
     ITH_13_B = "ITH-13-B"
     ITH_21_B = "ITH-21-B"
+    IAM_T1 = "IAM-T1"
 
 
 class ModelType(Enum):
@@ -63,14 +64,15 @@ class ModelInfo:
     service_uuid: UUID | None
     characteristic_uuid: UUID | None
     use_local_name_for_device: bool
+    parse_adv: bool
 
 
-SIXTEEN_BYTE_SENSOR_DATA_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
+INKBIRD_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
 SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID(
     "0000fff7-0000-1000-8000-00805f9b34fb"
 )
-NINE_BYTE_SENSOR_DATA_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
 NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID("0000fff2-0000-1000-8000-00805f9b34fb")
+IAM_T1_CHARACTERISTIC_UUID = UUID("0000fff4-0000-1000-8000-00805f9b34fb")
 
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
@@ -84,6 +86,7 @@ MODEL_INFO = {
         service_uuid=None,
         characteristic_uuid=None,
         use_local_name_for_device=True,
+        parse_adv=True,
     ),
     Model.IBBQ_2: ModelInfo(
         name="iBBQ-2",
@@ -94,6 +97,7 @@ MODEL_INFO = {
         service_uuid=None,
         characteristic_uuid=None,
         use_local_name_for_device=True,
+        parse_adv=True,
     ),
     Model.IBBQ_4: ModelInfo(
         name="iBBQ-4",
@@ -104,6 +108,7 @@ MODEL_INFO = {
         service_uuid=None,
         characteristic_uuid=None,
         use_local_name_for_device=True,
+        parse_adv=True,
     ),
     Model.IBBQ_6: ModelInfo(
         name="iBBQ-6",
@@ -114,6 +119,7 @@ MODEL_INFO = {
         service_uuid=None,
         characteristic_uuid=None,
         use_local_name_for_device=True,
+        parse_adv=True,
     ),
     Model.IBS_TH: ModelInfo(
         name="IBS-TH",
@@ -121,9 +127,10 @@ MODEL_INFO = {
         local_name="sps",
         message_length=9,
         unpacker=INKBIRD_UNPACK,
-        service_uuid=NINE_BYTE_SENSOR_DATA_SERVICE_UUID,
+        service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         use_local_name_for_device=False,
+        parse_adv=True,
     ),
     Model.IBS_TH2: ModelInfo(
         name="IBS-TH2/P01B",
@@ -131,9 +138,10 @@ MODEL_INFO = {
         local_name="tps",
         message_length=9,
         unpacker=INKBIRD_UNPACK,
-        service_uuid=NINE_BYTE_SENSOR_DATA_SERVICE_UUID,
+        service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         use_local_name_for_device=False,
+        parse_adv=True,
     ),
     Model.ITH_11_B: ModelInfo(
         name="ITH-11-B",
@@ -141,9 +149,10 @@ MODEL_INFO = {
         local_name="ith-11-b",
         message_length=16,
         unpacker=INKBIRD_UNPACK,
-        service_uuid=SIXTEEN_BYTE_SENSOR_DATA_SERVICE_UUID,
+        service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         use_local_name_for_device=False,
+        parse_adv=True,
     ),
     Model.ITH_13_B: ModelInfo(
         name="ITH-13-B",
@@ -151,9 +160,10 @@ MODEL_INFO = {
         local_name="ith-13-b",
         message_length=16,
         unpacker=INKBIRD_UNPACK,
-        service_uuid=SIXTEEN_BYTE_SENSOR_DATA_SERVICE_UUID,
+        service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         use_local_name_for_device=False,
+        parse_adv=True,
     ),
     Model.ITH_21_B: ModelInfo(
         name="ITH-21-B",
@@ -161,9 +171,21 @@ MODEL_INFO = {
         local_name="ith-21-b",
         message_length=16,
         unpacker=INKBIRD_UNPACK,
-        service_uuid=SIXTEEN_BYTE_SENSOR_DATA_SERVICE_UUID,
+        service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         use_local_name_for_device=False,
+        parse_adv=True,
+    ),
+    Model.IAM_T1: ModelInfo(
+        name="IAM-T1",
+        model_type=ModelType.SENSOR,
+        local_name="ink@iam-t1",
+        message_length=17,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=UUID("0000ffe0-0000-1000-8000-00805f9b34fb"),
+        characteristic_uuid=UUID("0000ffe4-0000-1000-8000-00805f9b34fb"),
+        use_local_name_for_device=False,
+        parse_adv=False,
     ),
 }
 
@@ -173,11 +195,15 @@ INKBIRD_NAMES = {
     if dev_info.local_name is not None
 }
 
-
 BBQ_MODELS = {
     model_type
     for model_type, model_info in MODEL_INFO.items()
     if model_info.model_type is ModelType.BBQ
+}
+SENSOR_MSG_LENGTHS = {
+    model_info.message_length
+    for model_info in MODEL_INFO.values()
+    if model_info.model_type is ModelType.SENSOR
 }
 NINE_BYTE_SENSOR_MODELS = {
     model_type
@@ -277,7 +303,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # If we do not know the device type yet, try to determine it
             # from the advertisement data.
             if (lower_name in INKBIRD_NAMES) and (
-                msg_length in (9, 16)
+                msg_length in SENSOR_MSG_LENGTHS
                 or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
             ):
                 self._device_type = INKBIRD_NAMES[lower_name]
@@ -286,6 +312,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             else:
                 return
         self._set_name_and_manufacturer(service_info)
+        if not MODEL_INFO[self._device_type].parse_adv:
+            # Device does not support parsing advertisement data
+            return
         excludes = MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
         changed_manufacturer_data = self.changed_manufacturer_data(
             service_info, excludes
@@ -363,10 +392,26 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         payload = await self._async_connect_and_read(ble_device)
         if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
             self._update_sixteen_byte_model_from_raw(payload[5:9], payload[9])
-        else:  # nine byte models
+        elif self._device_type in NINE_BYTE_SENSOR_MODELS:
             # Battery doesn't seem to be available for these models
             # but it is in the advertisement data
             self._update_nine_byte_model_from_raw(payload[0:4], None)
+        else:  # IAM-T1
+            sign = payload[4] & 0xF
+            temp = payload[5] << 8 | payload[6]
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS, (temp if sign == 0 else -temp) / 10
+            )
+            self.update_predefined_sensor(
+                SensorLibrary.HUMIDITY__PERCENTAGE, (payload[7] << 8 | payload[8]) / 10
+            )
+            self.update_predefined_sensor(
+                SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION,
+                payload[9] << 8 | payload[10],
+            )
+            self.update_predefined_sensor(
+                SensorLibrary.PRESSURE__HPA, payload[11] << 8 | payload[12]
+            )
         return self._finish_update()
 
     def _update_bbq_model(self, data: bytes, msg_length: int) -> None:
