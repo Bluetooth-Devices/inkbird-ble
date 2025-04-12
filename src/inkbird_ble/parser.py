@@ -335,11 +335,6 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Return True if the device uses notifications."""
         return self._device_type in NOTIFY_MODELS
 
-    @property
-    def device_data(self) -> dict[str, Any]:
-        """Return the device data."""
-        return self._device_data
-
     async def async_start(
         self, service_info: BluetoothServiceInfo, ble_device: BLEDevice
     ) -> None:
@@ -412,6 +407,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             sign = data[4] & 0xF
             temp = data[5] << 8 | data[6]
             signed_temp = (temp if sign == 0 else -temp) / 10
+            _LOGGER.debug("IAM-T1 temperature: %s (%s)", signed_temp, self._device_data)
             if self._device_data.get("temp_unit") == Units.TEMP_FAHRENHEIT:
                 # Convert to Celsius
                 signed_temp = round((signed_temp - 32) * 5 / 9, 2)
