@@ -13,7 +13,6 @@ import asyncio
 import contextlib
 import logging
 import struct
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum, StrEnum, auto
 from functools import lru_cache
@@ -27,7 +26,7 @@ from bluetooth_sensor_state_data import BluetoothData, SensorUpdate
 from sensor_state_data import SensorLibrary, Units
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import Callable, Coroutine
 
     from bleak import BleakGATTCharacteristic, BLEDevice
     from home_assistant_bluetooth import BluetoothServiceInfo
@@ -259,10 +258,12 @@ MANUFACTURER_DATA_ID_EXCLUDES = {2}
 MIN_POLL_INTERVAL = 180.0
 
 
-@asynccontextmanager
-async def async_connect(
+async def async_connect_action(
     ble_device: BLEDevice,
-) -> AsyncIterator[BleakClientWithServiceCache]:
+    action: Callable[
+        [BleakClientWithServiceCache], Coroutine[None, None, bytes | None]
+    ],
+) -> bytes | None:
     """Connect to the device and read the data characteristic."""
     for attempt in range(2):
         client = await establish_connection(
@@ -271,7 +272,7 @@ async def async_connect(
             ble_device.name or ble_device.address,
         )
         try:
-            yield client
+            return await action(client)
         except BleakCharacteristicNotFoundError:
             if attempt == 0:
                 await client.clear_cache()
@@ -281,8 +282,6 @@ async def async_connect(
             if attempt == 0:
                 continue
             raise
-        else:
-            return
         finally:
             await client.disconnect()
     raise AssertionError("unreachable")  # pragma: no cover
@@ -358,19 +357,21 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
     async def _async_start_notify(self, ble_device: BLEDevice) -> None:
         """Start the notification loop."""
-        assert self._device_type is not None
-        dev_info = MODEL_INFO[self._device_type]
-        notify_uuid = dev_info.notify_uuid
         while self._running:
             try:
-                async with async_connect(ble_device) as client:
-                    await client.start_notify(
-                        notify_uuid,
-                        self._notify_callback,
-                    )
+                await async_connect_action(ble_device, self._async_notify_action)
             except (BleakError, TimeoutError) as err:
                 _LOGGER.debug("Error starting notification: %s", str(err) or type(err))
             await asyncio.sleep(5)
+
+    async def _async_notify_action(self, client: BleakClientWithServiceCache) -> None:
+        assert self._device_type is not None
+        dev_info = MODEL_INFO[self._device_type]
+        notify_uuid = dev_info.notify_uuid
+        await client.start_notify(
+            notify_uuid,
+            self._notify_callback,
+        )
 
     def _notify_callback(
         self, sender: BleakGATTCharacteristic, data: bytearray
@@ -510,18 +511,25 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     async def _async_connect_and_read(self, ble_device: BLEDevice) -> bytes:
         """Connect to the device and read the data characteristic."""
         _LOGGER.debug("Polling INKBIRD device %s", self.name)
-        if TYPE_CHECKING:
-            assert self._device_type is not None
-        dev_info = MODEL_INFO[self._device_type]
         # Try to connect to the device and read the data characteristic
         # up to 2 times.
         # If the first attempt fails, clear the cache and try again.
         # This is needed because the cache may contain old data.
         # If the second attempt fails, raise an error.
-        async with async_connect(ble_device) as client:
-            service = client.services.get_service(dev_info.service_uuid)
-            char = service.get_characteristic(dev_info.characteristic_uuid)
-            return await client.read_gatt_char(char)
+        data = await async_connect_action(ble_device, self._async_poll_action)
+        assert data is not None
+        return data
+
+    async def _async_poll_action(
+        self, client: BleakClientWithServiceCache
+    ) -> bytes | None:
+        """Poll the device for updates."""
+        if TYPE_CHECKING:
+            assert self._device_type is not None
+        dev_info = MODEL_INFO[self._device_type]
+        service = client.services.get_service(dev_info.service_uuid)
+        char = service.get_characteristic(dev_info.characteristic_uuid)
+        return await client.read_gatt_char(char)
 
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
