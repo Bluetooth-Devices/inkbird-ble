@@ -272,6 +272,7 @@ async def async_connect(
         )
         try:
             yield client
+            break
         except BleakCharacteristicNotFoundError:
             if attempt == 0:
                 await client.clear_cache()
