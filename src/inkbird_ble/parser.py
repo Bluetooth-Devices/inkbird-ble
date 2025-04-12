@@ -373,10 +373,16 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         assert self._device_type is not None
         dev_info = MODEL_INFO[self._device_type]
         notify_uuid = dev_info.notify_uuid
-        await client.start_notify(
-            notify_uuid,
-            self._notify_callback,
-        )
+        loop = asyncio.get_running_loop()
+        disconnect_future = loop.create_future()
+
+        def _resolve_disconnect_callback(_: BleakClientWithServiceCache) -> None:
+            if not disconnect_future.done():
+                disconnect_future.set_result(None)
+
+        client.set_disconnected_callback(_resolve_disconnect_callback)
+        await client.start_notify(notify_uuid, self._notify_callback)
+        await disconnect_future  # wait for disconnect
 
     def _notify_callback(
         self, sender: BleakGATTCharacteristic, data: bytearray
