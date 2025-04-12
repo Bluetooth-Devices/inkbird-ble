@@ -331,6 +331,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self._device_data_changed_callback = device_data_changed_callback
 
     @property
+    def uses_notify(self) -> bool:
+        """Return True if the device uses notifications."""
+        return self._device_type in NOTIFY_MODELS
+
+    @property
     def device_data(self) -> dict[str, Any]:
         """Return the device data."""
         return self._device_data
