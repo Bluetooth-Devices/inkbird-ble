@@ -402,9 +402,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if len(data) == 12:  # noqa: PLR2004
             in_f = data[10] & 0xF
             unit = Units.TEMP_FAHRENHEIT if in_f else Units.TEMP_CELSIUS
+            _LOGGER.debug("IAM-T1 unit: %s (%s)", unit, self._device_data)
             if unit != self._device_data.get("temp_unit"):
                 self._device_data["temp_unit"] = unit
                 assert self._device_data_changed_callback is not None
+                _LOGGER.debug("IAM-T1 unit changed: %s (%s)", unit, self._device_data)
                 self._device_data_changed_callback(self._device_data)
         elif len(data) == 16:  # noqa: PLR2004
             sign = data[4] & 0xF
