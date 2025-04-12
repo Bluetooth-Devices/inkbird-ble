@@ -363,10 +363,15 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     async def _async_start_notify(self, ble_device: BLEDevice) -> None:
         """Start the notification loop."""
         while self._running:
+            _LOGGER.debug("Starting notification for %s", self.name)
             try:
                 await async_connect_action(ble_device, self._async_notify_action)
             except (BleakError, TimeoutError) as err:
                 _LOGGER.debug("Error starting notification: %s", str(err) or type(err))
+            _LOGGER.debug("Notification loop for %s finished", self.name)
+            # Wait for 5 seconds before trying again
+            # This is needed to avoid a busy loop if the device is not
+            # available
             await asyncio.sleep(5)
 
     async def _async_notify_action(self, client: BleakClientWithServiceCache) -> None:
