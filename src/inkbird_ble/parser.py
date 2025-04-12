@@ -272,7 +272,6 @@ async def async_connect(
         )
         try:
             yield client
-            break
         except BleakCharacteristicNotFoundError:
             if attempt == 0:
                 await client.clear_cache()
@@ -282,6 +281,8 @@ async def async_connect(
             if attempt == 0:
                 continue
             raise
+        else:
+            return
         finally:
             await client.disconnect()
     raise AssertionError("unreachable")  # pragma: no cover
