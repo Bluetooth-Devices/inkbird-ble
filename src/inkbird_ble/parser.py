@@ -13,20 +13,21 @@ import asyncio
 import contextlib
 import logging
 import struct
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum, StrEnum, auto
 from functools import lru_cache
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import UUID
 
 from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from bluetooth_data_tools import monotonic_time_coarse, short_address
 from bluetooth_sensor_state_data import BluetoothData, SensorUpdate
-from sensor_state_data import SensorLibrary
+from sensor_state_data import SensorLibrary, Units
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
     from bleak import BleakGATTCharacteristic, BLEDevice
     from home_assistant_bluetooth import BluetoothServiceInfo
@@ -241,17 +242,48 @@ SIXTEEN_BYTE_SENSOR_MODELS = {
 SENSOR_MODELS = {
     *NINE_BYTE_SENSOR_MODELS,
     *SIXTEEN_BYTE_SENSOR_MODELS,
-    Model.IAM_T1,
 }
 BBQ_LENGTH_TO_TYPE = {
     model_info.message_length: model_type
     for model_type, model_info in MODEL_INFO.items()
     if model_info.model_type is ModelType.BBQ
 }
+NOTIFY_MODELS = {
+    model_type
+    for model_type, model_info in MODEL_INFO.items()
+    if model_info.notify_uuid is not None
+}
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
 
 MIN_POLL_INTERVAL = 180.0
+
+
+@asynccontextmanager
+async def async_connect(
+    ble_device: BLEDevice,
+) -> AsyncIterator[BleakClientWithServiceCache]:
+    """Connect to the device and read the data characteristic."""
+    for attempt in range(2):
+        client = await establish_connection(
+            BleakClientWithServiceCache,
+            ble_device,
+            ble_device.name or ble_device.address,
+        )
+        try:
+            yield client
+        except BleakCharacteristicNotFoundError:
+            if attempt == 0:
+                await client.clear_cache()
+                continue
+            raise
+        except BleakError:
+            if attempt == 0:
+                continue
+            raise
+        finally:
+            await client.disconnect()
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 @lru_cache
@@ -279,12 +311,108 @@ def is_bbq(lower_name: str) -> bool:
 class INKBIRDBluetoothDeviceData(BluetoothData):
     """Date update for INKBIRD Bluetooth devices."""
 
-    def __init__(self, device_type: Model | str | None = None) -> None:
+    def __init__(
+        self,
+        device_type: Model | str | None = None,
+        device_data: dict[str, Any] | None = None,
+        update_callback: Callable[[SensorUpdate], None] | None = None,
+        device_data_changed_callback: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
         """Initialize the class."""
         super().__init__()
         self._device_type = try_parse_model(device_type)
         # Last time we got a full update from ADV data
         self._last_full_update = 0.0
+        self._notify_task: asyncio.Task[None] | None = None
+        self._running = True
+        self._device_data = device_data or {}
+        self._update_callback = update_callback
+        self._device_data_changed_callback = device_data_changed_callback
+
+    @property
+    def device_data(self) -> dict[str, Any]:
+        """Return the device data."""
+        return self._device_data
+
+    async def async_start(
+        self, service_info: BluetoothServiceInfo, ble_device: BLEDevice
+    ) -> None:
+        """Start the device."""
+        self._set_name_and_manufacturer(service_info)
+        assert self._device_type is not None
+        self._running = True
+        if self._device_type not in NOTIFY_MODELS:
+            return
+        self._notify_task = asyncio.create_task(self._async_start_notify(ble_device))
+
+    async def async_stop(self) -> None:
+        """Stop the device."""
+        self._running = False
+        if self._notify_task:
+            self._notify_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._notify_task
+            self._notify_task = None
+
+    async def _async_start_notify(self, ble_device: BLEDevice) -> None:
+        """Start the notification loop."""
+        assert self._device_type is not None
+        dev_info = MODEL_INFO[self._device_type]
+        notify_uuid = dev_info.notify_uuid
+        while self._running:
+            try:
+                async with async_connect(ble_device) as client:
+                    await client.start_notify(
+                        notify_uuid,
+                        self._notify_callback,
+                    )
+            except (BleakError, TimeoutError) as err:
+                _LOGGER.debug("Error starting notification: %s", str(err) or type(err))
+            await asyncio.sleep(5)
+
+    def _notify_callback(
+        self, sender: BleakGATTCharacteristic, data: bytearray
+    ) -> None:
+        """Callback for notifications."""
+        _LOGGER.debug("Received notification from %s: %s", sender, data)
+        if not self._running:
+            return
+        if self._device_type != Model.IAM_T1:
+            return
+        # IAM_T1
+        if len(data) == 12:  # noqa: PLR2004
+            in_f = data[10] & 0xF
+            unit = Units.TEMP_FAHRENHEIT if in_f else Units.TEMP_CELSIUS
+            if unit != self._device_data.get("temp_unit"):
+                self._device_data["temp_unit"] = unit
+                assert self._device_data_changed_callback is not None
+                self._device_data_changed_callback(self._device_data)
+        elif len(data) == 16:  # noqa: PLR2004
+            sign = data[4] & 0xF
+            temp = data[5] << 8 | data[6]
+            signed_temp = (temp if sign == 0 else -temp) / 10
+            if self._device_data.get("temp_unit") == Units.TEMP_FAHRENHEIT:
+                # Convert to Celsius
+                signed_temp = round((signed_temp - 32) * 5 / 9, 2)
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS, signed_temp
+            )
+            self.update_predefined_sensor(
+                SensorLibrary.HUMIDITY__PERCENTAGE, (data[7] << 8 | data[8]) / 10
+            )
+            self.update_predefined_sensor(
+                SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION,
+                data[9] << 8 | data[10],
+            )
+            self.update_predefined_sensor(
+                SensorLibrary.PRESSURE__HPA, data[11] << 8 | data[12]
+            )
+            assert self._update_callback is not None
+            self._update_callback(self._finish_update())
+        else:
+            _LOGGER.debug(
+                "Unexpected notification length %d from %s", len(data), sender
+            )
 
     @property
     def device_type(self) -> Model | None:
@@ -377,38 +505,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Return True if the device supports polling."""
         return self._device_type is not None and self._device_type in SENSOR_MODELS
 
-    async def _start_notify(
-        self, client: BleakClientWithServiceCache
-    ) -> dict[int, bytes]:
-        future = asyncio.get_running_loop().create_future()
-        assert self._device_type
-        dev_info = MODEL_INFO[self._device_type]
-        expected_lengths = set(dev_info.notify_length)
-        notify_uuid = dev_info.notify_uuid
-        results: dict[int, bytes] = {}
-
-        def _notify_callback(sender: BleakGATTCharacteristic, data: bytearray) -> None:
-            """Callback for notifications."""
-            _LOGGER.debug("Received notification from %s: %s", sender, data)
-            data_len = len(data)
-            if data_len not in expected_lengths:
-                _LOGGER.debug(
-                    "Unexpected notification length %d from %s", data_len, sender
-                )
-                return
-            results[data_len] = data
-            if not future.done() and len(results) == len(expected_lengths):
-                future.set_result(results)
-
-        async with asyncio.timeout(
-            610
-        ):  # Can take up to 10 minutes to get a notification
-            await client.start_notify(notify_uuid, _notify_callback)
-            return await future
-
-    async def _async_connect_and_read(
-        self, ble_device: BLEDevice
-    ) -> bytes | dict[int, bytes]:
+    async def _async_connect_and_read(self, ble_device: BLEDevice) -> bytes:
         """Connect to the device and read the data characteristic."""
         _LOGGER.debug("Polling INKBIRD device %s", self.name)
         if TYPE_CHECKING:
@@ -419,67 +516,20 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # If the first attempt fails, clear the cache and try again.
         # This is needed because the cache may contain old data.
         # If the second attempt fails, raise an error.
-
-        for attempt in range(2):
-            client = await establish_connection(
-                BleakClientWithServiceCache,
-                ble_device,
-                ble_device.name or ble_device.address,
-            )
-            try:
-                service = client.services.get_service(dev_info.service_uuid)
-                if dev_info.notify_uuid:
-                    return await self._start_notify(client)
-                char = service.get_characteristic(dev_info.characteristic_uuid)
-                return await client.read_gatt_char(char)
-            except BleakCharacteristicNotFoundError:
-                if attempt == 0:
-                    await client.clear_cache()
-                    continue
-                raise
-            except BleakError:
-                if attempt == 0:
-                    continue
-                raise
-            finally:
-                await client.disconnect()
-        raise AssertionError("unreachable")  # pragma: no cover
+        async with async_connect(ble_device) as client:
+            service = client.services.get_service(dev_info.service_uuid)
+            char = service.get_characteristic(dev_info.characteristic_uuid)
+            return await client.read_gatt_char(char)
 
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
         payload = await self._async_connect_and_read(ble_device)
         if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
-            assert isinstance(payload, bytes)
             self._update_sixteen_byte_model_from_raw(payload[5:9], payload[9])
         elif self._device_type in NINE_BYTE_SENSOR_MODELS:
             # Battery doesn't seem to be available for these models
             # but it is in the advertisement data
-            assert isinstance(payload, bytes)
             self._update_nine_byte_model_from_raw(payload[0:4], None)
-        else:  # IAM-T1
-            assert isinstance(payload, dict)
-            data_16 = payload[16]
-            data_12 = payload[12]
-            in_f = data_12[10] & 0xF
-            sign = data_16[4] & 0xF
-            temp = data_16[5] << 8 | data_16[6]
-            signed_temp = (temp if sign == 0 else -temp) / 10
-            if in_f:
-                # Convert to Celsius
-                signed_temp = round((signed_temp - 32) * 5 / 9, 2)
-            self.update_predefined_sensor(
-                SensorLibrary.TEMPERATURE__CELSIUS, signed_temp
-            )
-            self.update_predefined_sensor(
-                SensorLibrary.HUMIDITY__PERCENTAGE, (data_16[7] << 8 | data_16[8]) / 10
-            )
-            self.update_predefined_sensor(
-                SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION,
-                data_16[9] << 8 | data_16[10],
-            )
-            self.update_predefined_sensor(
-                SensorLibrary.PRESSURE__HPA, data_16[11] << 8 | data_16[12]
-            )
         return self._finish_update()
 
     def _update_bbq_model(self, data: bytes, msg_length: int) -> None:
