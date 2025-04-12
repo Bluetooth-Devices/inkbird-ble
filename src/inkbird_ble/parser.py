@@ -326,7 +326,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self._last_full_update = 0.0
         self._notify_task: asyncio.Task[None] | None = None
         self._running = True
-        self._device_data = device_data or {}
+        self._device_data = device_data.copy() if device_data else {}
         self._update_callback = update_callback
         self._device_data_changed_callback = device_data_changed_callback
 
