@@ -61,7 +61,6 @@ class ModelInfo:
     model_type: ModelType
     local_name: str | None
     message_length: int
-    notify_length: tuple[int, ...]
     unpacker: Callable[[bytes], tuple[int, ...]]
     service_uuid: UUID | None
     characteristic_uuid: UUID | None
@@ -85,7 +84,6 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=12,
-        notify_length=(0, 0),  # no notification
         unpacker=struct.Struct("<h").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -98,7 +96,6 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=14,
-        notify_length=(0, 0),  # no notification
         unpacker=struct.Struct("<HH").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -111,7 +108,6 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=18,
-        notify_length=(0, 0),  # no notification
         unpacker=struct.Struct("<hhhh").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -124,7 +120,6 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=22,
-        notify_length=(0, 0),  # no notification
         unpacker=struct.Struct("<hhhhhh").unpack,
         service_uuid=None,
         characteristic_uuid=None,
@@ -137,7 +132,6 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="sps",
         message_length=9,
-        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -150,7 +144,6 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="tps",
         message_length=9,
-        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -163,7 +156,6 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ith-11-b",
         message_length=16,
-        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -176,7 +168,6 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ith-13-b",
         message_length=16,
-        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -189,7 +180,6 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ith-21-b",
         message_length=16,
-        notify_length=(0, 0),  # no notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
@@ -202,7 +192,6 @@ MODEL_INFO = {
         model_type=ModelType.SENSOR,
         local_name="ink@iam-t1",
         message_length=17,
-        notify_length=(16, 12),  # length of notification
         unpacker=INKBIRD_UNPACK,
         service_uuid=UUID("0000ffe0-0000-1000-8000-00805f9b34fb"),
         characteristic_uuid=None,
