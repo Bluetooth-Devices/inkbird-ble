@@ -1,6 +1,31 @@
 # CHANGELOG
 
 
+## v0.11.0 (2025-04-13)
+
+### Chores
+
+- **deps-dev**: Bump pytest-cov from 6.1.0 to 6.1.1
+  ([#87](https://github.com/Bluetooth-Devices/inkbird-ble/pull/87),
+  [`4362c7d`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/4362c7d04013932b50b99aceda70311bf707fb09))
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#86](https://github.com/Bluetooth-Devices/inkbird-ble/pull/86),
+  [`9df0340`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/9df0340058cee1c47b08057fdd3d32b12fb128c3))
+
+updates: - [github.com/commitizen-tools/commitizen: v4.4.1 →
+  v4.5.0](https://github.com/commitizen-tools/commitizen/compare/v4.4.1...v4.5.0) -
+  [github.com/astral-sh/ruff-pre-commit: v0.11.2 →
+  v0.11.4](https://github.com/astral-sh/ruff-pre-commit/compare/v0.11.2...v0.11.4)
+
+Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+
+### Features
+
+- Add support for IAM-T1 ([#85](https://github.com/Bluetooth-Devices/inkbird-ble/pull/85),
+  [`1ad0db0`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/1ad0db09c7546b50eb7614dd4cc7326b684a2b1c))
+
+
 ## v0.10.1 (2025-04-05)
 
 ### Bug Fixes
