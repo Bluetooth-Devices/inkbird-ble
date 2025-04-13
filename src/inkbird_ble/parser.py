@@ -465,6 +465,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 self._device_type = INKBIRD_NAMES[lower_name]
             elif is_bbq(lower_name) and msg_length in BBQ_LENGTH_TO_TYPE:
                 self._device_type = BBQ_LENGTH_TO_TYPE[msg_length]
+            elif 12628 in manufacturer_data and manufacturer_data[12628].startswith(  # noqa: PLR2004
+                b"AC-6200"
+            ):
+                # AC-6200
+                self._device_type = Model.IAM_T1
             else:
                 return
         self._set_name_and_manufacturer(service_info)
