@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,6 +19,8 @@ from sensor_state_data import (
 )
 
 from inkbird_ble.parser import INKBIRDBluetoothDeviceData, Model
+
+from . import async_fire_time_changed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1841,8 +1844,8 @@ async def test_notify_iam_t1_c() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reconnect_iam_t1_f() -> None:
-    """Test reconnect with notify with passing data in F."""
+async def test_retry_iam_t1_f() -> None:
+    """Test retry with notify with passing data in F."""
 
     last_update: SensorUpdate | None = None
 
@@ -1900,6 +1903,79 @@ async def test_reconnect_iam_t1_f() -> None:
             ),
         )
         await asyncio.sleep(0)
+        await parser.async_stop()
+
+    assert last_update is not None
+
+
+@pytest.mark.asyncio
+async def test_reconnect_iam_t1_f() -> None:
+    """Test reconnect with notify with passing data in F."""
+
+    last_update: SensorUpdate | None = None
+
+    def _update_callback(update: SensorUpdate) -> None:
+        nonlocal last_update
+        last_update = update
+
+    def _data_callback(data: dict[str, Any]) -> None:
+        """
+        Callback for data updates.
+        """
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IAM_T1, {}, _update_callback, _data_callback
+    )
+    assert parser.device_type == Model.IAM_T1
+    service_info = BluetoothServiceInfo(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.supported(service_info) is True
+    assert parser.poll_needed(service_info, None) is False
+    assert parser.uses_notify
+    disconnect_mock = AsyncMock()
+    start_notify_calls = 0
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        nonlocal start_notify_calls
+        start_notify_calls += 1
+        callback(uuid, b"U")
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x01\x11")
+        callback(uuid, b"U\xaa\x01\x10\x10\x03\x0b\x01\xd6\x02\xe3\x03\xf1\x01\x00\xcf")
+
+    set_disconnected_callback_mock = MagicMock()
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        disconnect=disconnect_mock,
+        set_disconnected_callback=set_disconnected_callback_mock,
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:3C:AE:7B",
+                name="Ink@IAM-T1",
+                details={},
+                rssi=-60,
+            ),
+        )
+        await asyncio.sleep(0)
+        assert set_disconnected_callback_mock.called
+        set_disconnected_callback_mock.call_args[0][0](mock_client)
+        await asyncio.sleep(0)
+        assert start_notify_calls == 1
+        async_fire_time_changed(datetime.utcnow() + timedelta(seconds=5))
+        await asyncio.sleep(0)
+        assert start_notify_calls == 2  # noqa: PLR2004
         await parser.async_stop()
 
     assert last_update is not None
