@@ -1,6 +1,15 @@
 # CHANGELOG
 
 
+## v0.12.0 (2025-04-13)
+
+### Features
+
+- Add passive detection for the IAM-T1
+  ([#88](https://github.com/Bluetooth-Devices/inkbird-ble/pull/88),
+  [`7ff42be`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/7ff42be727f0617311046beaddd4670a983744b2))
+
+
 ## v0.11.0 (2025-04-13)
 
 ### Chores
