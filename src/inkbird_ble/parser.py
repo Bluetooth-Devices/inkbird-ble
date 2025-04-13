@@ -378,9 +378,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     ) -> None:
         """Callback for notifications."""
         _LOGGER.debug("Received notification from %s: %s", sender, data)
-        if not self._running:
-            return
-        if self._device_type != Model.IAM_T1:
+        if not self._running or self._device_type != Model.IAM_T1:
             return
         # IAM_T1
         if len(data) == 12:  # noqa: PLR2004
