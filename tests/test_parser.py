@@ -1848,6 +1848,7 @@ async def test_retry_iam_t1_f() -> None:
     """Test retry with notify with passing data in F."""
 
     last_update: SensorUpdate | None = None
+    data_callbacks: list[dict[str, Any]] = []
 
     def _update_callback(update: SensorUpdate) -> None:
         nonlocal last_update
@@ -1857,6 +1858,7 @@ async def test_retry_iam_t1_f() -> None:
         """
         Callback for data updates.
         """
+        data_callbacks.append(data.copy())
 
     parser = INKBIRDBluetoothDeviceData(
         Model.IAM_T1, {}, _update_callback, _data_callback
@@ -1888,6 +1890,7 @@ async def test_retry_iam_t1_f() -> None:
             msg = "test error"
             raise BleakError(msg)
         callback(uuid, b"U")
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x00\x11")
         callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x01\x11")
         callback(uuid, b"U\xaa\x01\x10\x10\x03\x0b\x01\xd6\x02\xe3\x03\xf1\x01\x00\xcf")
 
@@ -1906,6 +1909,10 @@ async def test_retry_iam_t1_f() -> None:
         await parser.async_stop()
 
     assert last_update is not None
+    assert data_callbacks == [
+        {"temp_unit": Units.TEMP_CELSIUS},
+        {"temp_unit": Units.TEMP_FAHRENHEIT},
+    ]
 
 
 @pytest.mark.asyncio
