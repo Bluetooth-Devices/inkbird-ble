@@ -1566,8 +1566,34 @@ async def test_passive_polling_fails_generic_bleak_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_passive_polling_iam_t1_f() -> None:
-    """Test polling with passing data in F."""
+async def test_notify_does_nothing_not_supported() -> None:
+    """Test polling with passing data."""
+    parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
+    assert parser.device_type == Model.ITH_11_B
+    assert parser.uses_notify is False
+    await parser.async_start(
+        BluetoothServiceInfo(
+            name="N0BYD",
+            manufacturer_data={},
+            service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+            address="aa:bb:cc:dd:ee:ff",
+            rssi=-60,
+            service_data={},
+            source="local",
+        ),
+        BLEDevice(
+            address="aa:bb:cc:dd:ee:ff",
+            name="N0BYD",
+            details={},
+            rssi=-60,
+        ),
+    )
+    await parser.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_notify_callbacks_iam_t1_f() -> None:
+    """Test notify with passing data in F."""
 
     last_update: SensorUpdate | None = None
 
