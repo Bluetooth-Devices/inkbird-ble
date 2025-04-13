@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import asyncio
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1567,7 +1568,21 @@ async def test_passive_polling_fails_generic_bleak_error() -> None:
 @pytest.mark.asyncio
 async def test_passive_polling_iam_t1_f() -> None:
     """Test polling with passing data in F."""
-    parser = INKBIRDBluetoothDeviceData(Model.IAM_T1)
+
+    last_update: SensorUpdate | None = None
+
+    def _update_callback(update: SensorUpdate) -> None:
+        nonlocal last_update
+        last_update = update
+
+    def _data_callback(data: dict[str, Any]) -> None:
+        """
+        Callback for data updates.
+        """
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IAM_T1, {}, _update_callback, _data_callback
+    )
     assert parser.device_type == Model.IAM_T1
     service_info = BluetoothServiceInfo(
         name="Ink@IAM-T1",
@@ -1580,7 +1595,8 @@ async def test_passive_polling_iam_t1_f() -> None:
     )
     parser.update(service_info)
     assert parser.supported(service_info) is True
-    assert parser.poll_needed(service_info, None) is True
+    assert parser.poll_needed(service_info, None) is False
+    assert parser.uses_notify
     disconnect_mock = AsyncMock()
 
     async def start_notify_mock(
@@ -1592,15 +1608,19 @@ async def test_passive_polling_iam_t1_f() -> None:
 
     mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
     with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
-        update = await parser.async_poll(
+        await parser.async_start(
+            service_info,
             BLEDevice(
                 address="62:00:A1:3C:AE:7B",
                 name="Ink@IAM-T1",
                 details={},
                 rssi=-60,
-            )
+            ),
         )
-    assert update == SensorUpdate(
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    assert last_update == SensorUpdate(
         title=None,
         devices={
             None: SensorDeviceInfo(
@@ -1672,9 +1692,22 @@ async def test_passive_polling_iam_t1_f() -> None:
 
 
 @pytest.mark.asyncio
-async def test_passive_polling_iam_t1_c() -> None:
-    """Test polling with passing data in C."""
-    parser = INKBIRDBluetoothDeviceData(Model.IAM_T1)
+async def test_notify_iam_t1_c() -> None:
+    """Test notify with passing data in C."""
+    last_update: SensorUpdate | None = None
+
+    def _update_callback(update: SensorUpdate) -> None:
+        nonlocal last_update
+        last_update = update
+
+    def _data_callback(data: dict[str, Any]) -> None:
+        """
+        Callback for data updates.
+        """
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IAM_T1, {}, _update_callback, _data_callback
+    )
     assert parser.device_type == Model.IAM_T1
     service_info = BluetoothServiceInfo(
         name="Ink@IAM-T1",
@@ -1687,7 +1720,8 @@ async def test_passive_polling_iam_t1_c() -> None:
     )
     parser.update(service_info)
     assert parser.supported(service_info) is True
-    assert parser.poll_needed(service_info, None) is True
+    assert parser.poll_needed(service_info, None) is False
+    assert parser.uses_notify
     disconnect_mock = AsyncMock()
 
     async def start_notify_mock(
@@ -1698,15 +1732,18 @@ async def test_passive_polling_iam_t1_c() -> None:
 
     mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
     with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
-        update = await parser.async_poll(
+        await parser.async_start(
+            service_info,
             BLEDevice(
                 address="62:00:A1:3C:AE:7B",
                 name="Ink@IAM-T1",
                 details={},
                 rssi=-60,
-            )
+            ),
         )
-    assert update == SensorUpdate(
+        await asyncio.sleep(0)
+        await parser.async_stop()
+    assert last_update == SensorUpdate(
         title=None,
         devices={
             None: SensorDeviceInfo(
