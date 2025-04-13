@@ -1569,6 +1569,26 @@ async def test_passive_polling_fails_generic_bleak_error() -> None:
 
 
 @pytest.mark.asyncio
+async def test_passive_detect_iam_t1() -> None:
+    """Test polling with passing data."""
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = BluetoothServiceInfo(
+        name="",
+        manufacturer_data={12628: bytes.fromhex("41432d363230306131336361650000")},
+        service_uuids=[],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.device_type == Model.IAM_T1
+    assert parser.poll_needed(service_info, None) is False
+    assert parser.name == "IAM-T1 EEFF"
+    assert parser.supported(service_info) is True
+
+
+@pytest.mark.asyncio
 async def test_notify_does_nothing_not_supported() -> None:
     """Test polling with passing data."""
     parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
