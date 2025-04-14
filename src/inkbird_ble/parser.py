@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from bleak import BleakGATTCharacteristic, BLEDevice
-    from home_assistant_bluetooth import BluetoothServiceInfoBleak
+    from habluetooth import BluetoothServiceInfoBleak
 
 
 _LOGGER = logging.getLogger(__name__)

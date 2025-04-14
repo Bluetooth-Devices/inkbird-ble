@@ -10,7 +10,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bluetooth_data_tools import monotonic_time_coarse
 from bluetooth_sensor_state_data import DeviceClass, SensorUpdate
-from home_assistant_bluetooth import BluetoothServiceInfoBleak
+from habluetooth import BluetoothServiceInfoBleak
 from sensor_state_data import (
     DeviceKey,
     SensorDescription,

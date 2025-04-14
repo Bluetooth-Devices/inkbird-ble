@@ -7,7 +7,6 @@ description = "Async OUI lookups"
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["main"]
-markers = "python_version < \"3.14\" and platform_system == \"Linux\""
 files = [
     {file = "aiooui-0.1.9-cp310-cp310-manylinux_2_31_x86_64.whl", hash = "sha256:64d904b43f14dd1d8d9fcf1684d9e2f558bc5e0bd68dc10023c93355c9027907"},
     {file = "aiooui-0.1.9-py3-none-any.whl", hash = "sha256:737a5e62d8726540218c2b70e5f966d9912121e4644f3d490daf8f3c18b182e5"},
@@ -25,6 +24,18 @@ markers = "extra == \"docs\""
 files = [
     {file = "alabaster-1.0.0-py3-none-any.whl", hash = "sha256:fc6786402dc3fcb2de3cabd5fe455a2db534b371124f1f21de8731783dec828b"},
     {file = "alabaster-1.0.0.tar.gz", hash = "sha256:c00dca57bca26fa62a6d7d0a9fcce65f3e026e9bfe33e9c538fd3fbb2144fd9e"},
+]
+
+[[package]]
+name = "async-interrupt"
+version = "1.2.2"
+description = "Context manager to raise an exception when a future is done"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "async_interrupt-1.2.2-py3-none-any.whl", hash = "sha256:0a8deb884acfb5fe55188a693ae8a4381bbbd2cb6e670dac83869489513eec2c"},
+    {file = "async_interrupt-1.2.2.tar.gz", hash = "sha256:be4331a029b8625777905376a6dc1370984c8c810f30b79703f3ee039d262bf7"},
 ]
 
 [[package]]
@@ -50,7 +61,6 @@ description = "Bluetooth Low Energy platform Agnostic Klient"
 optional = false
 python-versions = "<3.14,>=3.8"
 groups = ["main"]
-markers = "python_version < \"3.14\""
 files = [
     {file = "bleak-0.22.3-py3-none-any.whl", hash = "sha256:1e62a9f5e0c184826e6c906e341d8aca53793e4596eeaf4e0b191e7aca5c461c"},
     {file = "bleak-0.22.3.tar.gz", hash = "sha256:3149c3c19657e457727aa53d9d6aeb89658495822cd240afd8aeca4dd09c045c"},
@@ -96,7 +106,7 @@ description = "Python WinRT bindings for Bleak"
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "python_version < \"3.12\" and platform_system == \"Windows\""
+markers = "platform_system == \"Windows\" and python_version < \"3.12\""
 files = [
     {file = "bleak-winrt-1.2.0.tar.gz", hash = "sha256:0577d070251b9354fc6c45ffac57e39341ebb08ead014b1bdbd43e211d2ce1d6"},
     {file = "bleak_winrt-1.2.0-cp310-cp310-win32.whl", hash = "sha256:a2ae3054d6843ae0cfd3b94c83293a1dfd5804393977dd69bde91cb5099fc47c"},
@@ -118,7 +128,6 @@ description = "Tools to enumerate and find Bluetooth Adapters"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "python_version < \"3.14\" and platform_system == \"Linux\""
 files = [
     {file = "bluetooth_adapters-0.21.4-py3-none-any.whl", hash = "sha256:ce2e8139cc9d7b103c21654c6309507979e469aae3efebcaeee9923080b0569b"},
     {file = "bluetooth_adapters-0.21.4.tar.gz", hash = "sha256:a5a809ef7ba95ee673a78704f90ce34612deb3696269d1a6fd61f98642b99dd3"},
@@ -130,6 +139,27 @@ bleak = ">=0.21.1"
 dbus-fast = {version = ">=1.21.0", markers = "platform_system == \"Linux\""}
 uart-devices = ">=0.1.0"
 usb-devices = ">=0.4.5"
+
+[package.extras]
+docs = ["Sphinx (>=5,<8)", "myst-parser (>=0.18,<3.1)", "sphinx-rtd-theme (>=1,<4)"]
+
+[[package]]
+name = "bluetooth-auto-recovery"
+version = "1.4.5"
+description = "Recover bluetooth adapters that are in an stuck state"
+optional = false
+python-versions = "<4.0,>=3.9"
+groups = ["main"]
+files = [
+    {file = "bluetooth_auto_recovery-1.4.5-py3-none-any.whl", hash = "sha256:a55667366cbc29808877092ecd98e4ffc87957fb5012755904f766f2a42f52f0"},
+    {file = "bluetooth_auto_recovery-1.4.5.tar.gz", hash = "sha256:1c7c231bb53262bea8d15e72601ea0c839c3c6e5f840cd1c752e5c137b23aa17"},
+]
+
+[package.dependencies]
+bluetooth-adapters = ">=0.16.0"
+btsocket = ">=0.2.0"
+PyRIC = ">=0.1.6.3"
+usb-devices = ">=0.4.1"
 
 [package.extras]
 docs = ["Sphinx (>=5,<8)", "myst-parser (>=0.18,<3.1)", "sphinx-rtd-theme (>=1,<4)"]
@@ -218,6 +248,24 @@ sensor-state-data = ">=2.0"
 
 [package.extras]
 docs = ["Sphinx (>=5,<7)", "myst-parser (>=0.18,<3.1)", "sphinx-rtd-theme (>=1,<4)"]
+
+[[package]]
+name = "btsocket"
+version = "0.3.0"
+description = "Python library for BlueZ Bluetooth Management API"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "btsocket-0.3.0-py2.py3-none-any.whl", hash = "sha256:949821c1b580a88e73804ad610f5173d6ae258e7b4e389da4f94d614344f1a9c"},
+    {file = "btsocket-0.3.0.tar.gz", hash = "sha256:7ea495de0ff883f0d9f8eea59c72ca7fed492994df668fe476b84d814a147a0d"},
+]
+
+[package.extras]
+dev = ["bumpversion", "coverage", "pycodestyle", "pygments", "sphinx", "sphinx-rtd-theme", "twine"]
+docs = ["pygments", "sphinx", "sphinx-rtd-theme"]
+rel = ["bumpversion", "twine"]
+test = ["coverage", "pycodestyle"]
 
 [[package]]
 name = "certifi"
@@ -633,16 +681,75 @@ files = [
 ]
 
 [[package]]
-name = "home-assistant-bluetooth"
-version = "1.10.4"
-description = "Home Assistant Bluetooth Models and Helpers"
+name = "habluetooth"
+version = "3.38.0"
+description = "High availability Bluetooth"
 optional = false
-python-versions = ">=3.9,<4.0"
+python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "home_assistant_bluetooth-1.10.4-cp310-cp310-manylinux_2_31_x86_64.whl", hash = "sha256:7c3434bdec5dcfe733d3e7c56d4a24418fcd03718dc2e7707c9133d1e48145a8"},
-    {file = "home_assistant_bluetooth-1.10.4.tar.gz", hash = "sha256:21216b6be9d028bc232b9188ac4dce773798c6b4e47482cc3524bfc5f82515e3"},
+    {file = "habluetooth-3.38.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:1881c146d5b84c5a1f07fe0113281166d35be19ab1cc08ce3f9ace19af165ef3"},
+    {file = "habluetooth-3.38.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:07561287ea6afab873678c60b5d592b515add1ddee0d9a7564f97e55e3778d50"},
+    {file = "habluetooth-3.38.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:eb1909b53d5906fca6a6f88e08f27430d565f5abacdcd983882133e4fca2840e"},
+    {file = "habluetooth-3.38.0-cp311-cp311-manylinux_2_17_i686.manylinux_2_5_i686.manylinux1_i686.manylinux2014_i686.whl", hash = "sha256:9d406429a193ace0d8d5ab0e6d322aa51b793455f2d03a26ba738ee47b710c55"},
+    {file = "habluetooth-3.38.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:2401d83a0c6dee999d514722b9373a733525abec148a90be6a20bd0e56cbfaf8"},
+    {file = "habluetooth-3.38.0-cp311-cp311-manylinux_2_31_armv7l.manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:810dcdf4cf2cad298d9200c5aaa0332b42719230de91d810ce82f98aed58ceea"},
+    {file = "habluetooth-3.38.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:0ec7afd0ea2a5af6cccb87834836dfcf55354c80e13613d3ae29e126123f09ac"},
+    {file = "habluetooth-3.38.0-cp311-cp311-musllinux_1_2_armv7l.whl", hash = "sha256:3490ccc601dfb717318b2d1251a289e8578bc9e42df4534e57e7c2d08c3947e5"},
+    {file = "habluetooth-3.38.0-cp311-cp311-musllinux_1_2_i686.whl", hash = "sha256:9376f819578edcf44a4d352c9ace7e7f42ab7560b13024442dd07f2abb887016"},
+    {file = "habluetooth-3.38.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:b169edba40de9d4b29178320409da9137c2d348b7e89df7eae4f37aff32b92e7"},
+    {file = "habluetooth-3.38.0-cp311-cp311-win32.whl", hash = "sha256:b852744e6303f25eeec4673d4e9ab62e9abfa2e945d35388aa28b45eb9702b10"},
+    {file = "habluetooth-3.38.0-cp311-cp311-win_amd64.whl", hash = "sha256:a38824ed6e92409ace2de3e345f5e78b38bc853a5ee5af986ba30ed80441adc2"},
+    {file = "habluetooth-3.38.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:1545bfd35a1286dff9737cd0273b2db0d2cdaa2794d3e13de39822204fd6783f"},
+    {file = "habluetooth-3.38.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:338405eff410edfd2053014191a9389401e7d8db3da74f962a83d07ce0202617"},
+    {file = "habluetooth-3.38.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:a01ac6c678a596771ec2a626ca0e1bbc84f1b92d449a56dbdbd1c5dfd1affba6"},
+    {file = "habluetooth-3.38.0-cp312-cp312-manylinux_2_17_i686.manylinux_2_5_i686.manylinux1_i686.manylinux2014_i686.whl", hash = "sha256:6b34afda7868e9af8150271de129a66d4fdeadbf654c8c99ab8465ed574e436f"},
+    {file = "habluetooth-3.38.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a2c122801406546764e23e26d211940cfaeec5abddbc7276b4bad264211797b2"},
+    {file = "habluetooth-3.38.0-cp312-cp312-manylinux_2_31_armv7l.manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:f18ed561187e1ad4789364cb45d8de196b8b7701e45a2817db85ef304dcbb2d6"},
+    {file = "habluetooth-3.38.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:d08b029a99eb97025eb79c6c91202315d48e72fe65b2066cfe4079ece0527248"},
+    {file = "habluetooth-3.38.0-cp312-cp312-musllinux_1_2_armv7l.whl", hash = "sha256:710da6a6493cfeb154b70d6316abe5b200ad030cd458c71ffd58fba02e5117b1"},
+    {file = "habluetooth-3.38.0-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:4c2fdfcb075ef1b548f1af1b13a471c7d3a782696d645147571196062599e77c"},
+    {file = "habluetooth-3.38.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:e1061f6bdce4d80e884065dbf0a963c2dd3311d5c28d5c30f3ae99c126c2aa1e"},
+    {file = "habluetooth-3.38.0-cp312-cp312-win32.whl", hash = "sha256:cdf4c70adb903f233735bb64f3fffe00809e209489178ac26065eb403e0cf299"},
+    {file = "habluetooth-3.38.0-cp312-cp312-win_amd64.whl", hash = "sha256:e1d8feb52a26ab5746422ff7474afd20f0908676ec5d3c117a4e000a1a6f624e"},
+    {file = "habluetooth-3.38.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:2fad8f120aa7ea60bb0cc5813e9bca7cf71aa73bad0c4963329ce6061a586a3a"},
+    {file = "habluetooth-3.38.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:be3d47624e24f041f51f2f27a7c12e4c668d10babe4e5e405fa95e99cd7643b4"},
+    {file = "habluetooth-3.38.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:75bab83183932cf72ba1022a59f89a7ab38ff1eb89976a3ad69632f2152b31ab"},
+    {file = "habluetooth-3.38.0-cp313-cp313-manylinux_2_17_i686.manylinux_2_5_i686.manylinux1_i686.manylinux2014_i686.whl", hash = "sha256:7bb74e4806282560fd59d069824af5665656daed64bc7b732387d523f44b0c4e"},
+    {file = "habluetooth-3.38.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7b87c68c439999b1f47a686334633c75d5885cecb6863ef824331d1ba29c684c"},
+    {file = "habluetooth-3.38.0-cp313-cp313-manylinux_2_31_armv7l.manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:677137a00cbb1fad58f9201fdad16b6d16b9fc9f11556db2ed6fe3013e717656"},
+    {file = "habluetooth-3.38.0-cp313-cp313-manylinux_2_36_x86_64.whl", hash = "sha256:6a382b10467262326f3944c0822d61d3ebef8f4587fd256cf9567f8b553225f5"},
+    {file = "habluetooth-3.38.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:8c53ccec8a747d5488f52eb7b415482d584a1025b4c228f410b04fd8da535db7"},
+    {file = "habluetooth-3.38.0-cp313-cp313-musllinux_1_2_armv7l.whl", hash = "sha256:a8919c1b84969ea906e586e68c2e36880be652263a16f343ccaf16ba6b47d4d6"},
+    {file = "habluetooth-3.38.0-cp313-cp313-musllinux_1_2_i686.whl", hash = "sha256:3f9ad0b37c3b05c67621e7e0321d40628f1955c3ada0dbdb46180d0b60e1855e"},
+    {file = "habluetooth-3.38.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:2c1aad5ad0e04504a710b3d75be1ee49d9629d42dc7e454830699245c1872a1f"},
+    {file = "habluetooth-3.38.0-cp313-cp313-win32.whl", hash = "sha256:4f4adfd4ea2acb669f6cfef7dbccb4ea4ed0892850c0d312de9197f3dc559109"},
+    {file = "habluetooth-3.38.0-cp313-cp313-win_amd64.whl", hash = "sha256:4881c9e0c497441a8ac392c9b6236ae1ac01af94ffbcb038436b8157ec43a571"},
+    {file = "habluetooth-3.38.0.tar.gz", hash = "sha256:1a191bf48373edfb8e476acd6a79f756a1de3aafc78210a96271e9e32f6b5131"},
 ]
+
+[package.dependencies]
+async-interrupt = ">=1.1.1"
+bleak = ">=0.21.1"
+bleak-retry-connector = ">=3.9.0"
+bluetooth-adapters = ">=0.16.1"
+bluetooth-auto-recovery = ">=1.2.3"
+bluetooth-data-tools = ">=1.16.0"
+
+[[package]]
+name = "home-assistant-bluetooth"
+version = "1.13.1"
+description = "Home Assistant Bluetooth Models and Helpers"
+optional = false
+python-versions = ">=3.11"
+groups = ["main"]
+files = [
+    {file = "home_assistant_bluetooth-1.13.1-py3-none-any.whl", hash = "sha256:cdf13b5b45f7744165677831e309ee78fbaf0c2866c6b5931e14d1e4e7dae5d7"},
+    {file = "home_assistant_bluetooth-1.13.1.tar.gz", hash = "sha256:0ae0e2a8491cc762ee9e694b8bc7665f1e2b4618926f63969a23a2e3a48ce55e"},
+]
+
+[package.dependencies]
+habluetooth = ">=3.0"
 
 [[package]]
 name = "idna"
@@ -929,7 +1036,7 @@ description = "Python<->ObjC Interoperability Module"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "python_version < \"3.14\" and platform_system == \"Darwin\""
+markers = "platform_system == \"Darwin\""
 files = [
     {file = "pyobjc_core-10.3.2-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:acb40672d682851a5c7fd84e5041c4d069b62076168d72591abb5fcc871bb039"},
     {file = "pyobjc_core-10.3.2-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:cea5e77659619ad93c782ca07644b6efe7d7ec6f59e46128843a0a87c1af511a"},
@@ -949,7 +1056,7 @@ description = "Wrappers for the Cocoa frameworks on macOS"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "python_version < \"3.14\" and platform_system == \"Darwin\""
+markers = "platform_system == \"Darwin\""
 files = [
     {file = "pyobjc_framework_Cocoa-10.3.2-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:61f44c2adab28fdf3aa3d593c9497a2d9ceb9583ed9814adb48828c385d83ff4"},
     {file = "pyobjc_framework_Cocoa-10.3.2-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:7caaf8b260e81b27b7b787332846f644b9423bfc1536f6ec24edbde59ab77a87"},
@@ -972,7 +1079,7 @@ description = "Wrappers for the framework CoreBluetooth on macOS"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "python_version < \"3.14\" and platform_system == \"Darwin\""
+markers = "platform_system == \"Darwin\""
 files = [
     {file = "pyobjc_framework_CoreBluetooth-10.3.2-cp313-cp313t-macosx_10_13_universal2.whl", hash = "sha256:af3e2f935a6a7e5b009b4cf63c64899592a7b46c3ddcbc8f2e28848842ef65f4"},
     {file = "pyobjc_framework_CoreBluetooth-10.3.2-cp36-abi3-macosx_10_13_universal2.whl", hash = "sha256:973b78f47c7e2209a475e60bcc7d1b4a87be6645d39b4e8290ee82640e1cc364"},
@@ -993,7 +1100,7 @@ description = "Wrappers for libdispatch on macOS"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "python_version < \"3.14\" and platform_system == \"Darwin\""
+markers = "platform_system == \"Darwin\""
 files = [
     {file = "pyobjc_framework_libdispatch-10.3.2-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:35233a8b1135567c7696087f924e398799467c7f129200b559e8e4fa777af860"},
     {file = "pyobjc_framework_libdispatch-10.3.2-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:061f6aa0f88d11d993e6546ec734303cb8979f40ae0f5cd23541236a6b426abd"},
@@ -1009,6 +1116,17 @@ files = [
 [package.dependencies]
 pyobjc-core = ">=10.3.2"
 pyobjc-framework-Cocoa = ">=10.3.2"
+
+[[package]]
+name = "pyric"
+version = "0.1.6.3"
+description = "Python Wireless Library"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "PyRIC-0.1.6.3.tar.gz", hash = "sha256:b539b01cafebd2406c00097f94525ea0f8ecd1dd92f7731f43eac0ef16c2ccc9"},
+]
 
 [[package]]
 name = "pytest"
@@ -1383,15 +1501,15 @@ test = ["pytest"]
 
 [[package]]
 name = "typing-extensions"
-version = "4.13.1"
+version = "4.13.2"
 description = "Backported and Experimental Type Hints for Python 3.8+"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 markers = "python_version < \"3.12\""
 files = [
-    {file = "typing_extensions-4.13.1-py3-none-any.whl", hash = "sha256:4b6cf02909eb5495cfbc3f6e8fd49217e6cc7944e145cdda8caa3734777f9e69"},
-    {file = "typing_extensions-4.13.1.tar.gz", hash = "sha256:98795af00fb9640edec5b8e31fc647597b4691f099ad75f469a2616be1a76dff"},
+    {file = "typing_extensions-4.13.2-py3-none-any.whl", hash = "sha256:a439e7c04b49fec3e5d3e2beaa21755cadbbdc391694e28ccdd36ca4a1408f8c"},
+    {file = "typing_extensions-4.13.2.tar.gz", hash = "sha256:e6c81219bd689f51865d9e372991c540bda33a0379d5573cddb9a3a23f7caaef"},
 ]
 
 [[package]]
@@ -1401,7 +1519,6 @@ description = "UART Devices for Linux"
 optional = false
 python-versions = "<4.0,>=3.9"
 groups = ["main"]
-markers = "python_version < \"3.14\" and platform_system == \"Linux\""
 files = [
     {file = "uart_devices-0.1.1-py3-none-any.whl", hash = "sha256:55bc8cce66465e90b298f0910e5c496bc7be021341c5455954cf61c6253dc123"},
     {file = "uart_devices-0.1.1.tar.gz", hash = "sha256:3a52c4ae0f5f7400ebe1ae5f6e2a2d40cc0b7f18a50e895236535c4e53c6ed34"},
@@ -1409,15 +1526,15 @@ files = [
 
 [[package]]
 name = "urllib3"
-version = "2.3.0"
+version = "2.4.0"
 description = "HTTP library with thread-safe connection pooling, file post, and more."
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
 markers = "extra == \"docs\""
 files = [
-    {file = "urllib3-2.3.0-py3-none-any.whl", hash = "sha256:1cee9ad369867bfdbbb48b7dd50374c0967a0bb7710050facf0dd6911440e3df"},
-    {file = "urllib3-2.3.0.tar.gz", hash = "sha256:f8c5449b3cf0861679ce7e0503c7b44b5ec981bec0d1d3795a07f1ba96f0204d"},
+    {file = "urllib3-2.4.0-py3-none-any.whl", hash = "sha256:4e16665048960a0900c702d4a66415956a584919c03361cac9f1df5c5dd7e813"},
+    {file = "urllib3-2.4.0.tar.gz", hash = "sha256:414bc6535b787febd7567804cc015fee39daab8ad86268f1310a9250697de466"},
 ]
 
 [package.extras]
@@ -1433,7 +1550,6 @@ description = "Tools for mapping, describing, and resetting USB devices"
 optional = false
 python-versions = ">=3.9,<4.0"
 groups = ["main"]
-markers = "python_version < \"3.14\" and platform_system == \"Linux\""
 files = [
     {file = "usb_devices-0.4.5-py3-none-any.whl", hash = "sha256:8a415219ef1395e25aa0bddcad484c88edf9673acdeae8a07223ca7222a01dcf"},
     {file = "usb_devices-0.4.5.tar.gz", hash = "sha256:9b5c7606df2bc791c6c45b7f76244a0cbed83cb6fa4c68791a143c03345e195d"},
@@ -1446,7 +1562,7 @@ description = "Python projection of Windows Runtime (WinRT) APIs"
 optional = false
 python-versions = "<3.14,>=3.9"
 groups = ["main"]
-markers = "python_version >= \"3.12\" and python_version < \"3.14\" and platform_system == \"Windows\""
+markers = "platform_system == \"Windows\" and python_version >= \"3.12\""
 files = [
     {file = "winrt_runtime-2.3.0-cp310-cp310-win32.whl", hash = "sha256:5c22ed339b420a6026134e28281b25078a9e6755eceb494dce5d42ee5814e3fd"},
     {file = "winrt_runtime-2.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:f3ef0d6b281a8d4155ea14a0f917faf82a004d4996d07beb2b3d2af191503fb1"},
@@ -1473,7 +1589,7 @@ description = "Python projection of Windows Runtime (WinRT) APIs"
 optional = false
 python-versions = "<3.14,>=3.9"
 groups = ["main"]
-markers = "python_version >= \"3.12\" and python_version < \"3.14\" and platform_system == \"Windows\""
+markers = "platform_system == \"Windows\" and python_version >= \"3.12\""
 files = [
     {file = "winrt_Windows.Devices.Bluetooth-2.3.0-cp310-cp310-win32.whl", hash = "sha256:554aa6d0ca4bebc22a45f19fa60db1183a2b5643468f3c95cf0ebc33fbc1b0d0"},
     {file = "winrt_Windows.Devices.Bluetooth-2.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:cec2682e10431f027c1823647772671fb09bebc1e8a00021a3651120b846d36f"},
@@ -1506,7 +1622,7 @@ description = "Python projection of Windows Runtime (WinRT) APIs"
 optional = false
 python-versions = "<3.14,>=3.9"
 groups = ["main"]
-markers = "python_version >= \"3.12\" and python_version < \"3.14\" and platform_system == \"Windows\""
+markers = "platform_system == \"Windows\" and python_version >= \"3.12\""
 files = [
     {file = "winrt_Windows.Devices.Bluetooth.Advertisement-2.3.0-cp310-cp310-win32.whl", hash = "sha256:4386498e7794ed383542ea868f0aa2dd8fb5f09f12bdffde024d12bd9f5a3756"},
     {file = "winrt_Windows.Devices.Bluetooth.Advertisement-2.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:d6fa25b2541d2898ae17982e86e0977a639b04f75119612cb46e1719474513fd"},
@@ -1539,7 +1655,7 @@ description = "Python projection of Windows Runtime (WinRT) APIs"
 optional = false
 python-versions = "<3.14,>=3.9"
 groups = ["main"]
-markers = "python_version >= \"3.12\" and python_version < \"3.14\" and platform_system == \"Windows\""
+markers = "platform_system == \"Windows\" and python_version >= \"3.12\""
 files = [
     {file = "winrt_Windows.Devices.Bluetooth.GenericAttributeProfile-2.3.0-cp310-cp310-win32.whl", hash = "sha256:1ec75b107370827874d8435a47852d0459cb66d5694e02a833e0a75c4748e847"},
     {file = "winrt_Windows.Devices.Bluetooth.GenericAttributeProfile-2.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:0a178aa936abbc56ae1cc54a222dee4a34ce6c09506a5b592d4f7d04dbe76b95"},
@@ -1572,7 +1688,7 @@ description = "Python projection of Windows Runtime (WinRT) APIs"
 optional = false
 python-versions = "<3.14,>=3.9"
 groups = ["main"]
-markers = "python_version >= \"3.12\" and python_version < \"3.14\" and platform_system == \"Windows\""
+markers = "platform_system == \"Windows\" and python_version >= \"3.12\""
 files = [
     {file = "winrt_Windows.Devices.Enumeration-2.3.0-cp310-cp310-win32.whl", hash = "sha256:461360ab47967f39721e71276fdcfe87ad2f71ba7b09d721f2f88bcdf16a6924"},
     {file = "winrt_Windows.Devices.Enumeration-2.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:a7d7b01d43d5dcc1f3846db12f4c552155efae75469f36052623faed7f0f74a8"},
@@ -1605,7 +1721,7 @@ description = "Python projection of Windows Runtime (WinRT) APIs"
 optional = false
 python-versions = "<3.14,>=3.9"
 groups = ["main"]
-markers = "python_version >= \"3.12\" and python_version < \"3.14\" and platform_system == \"Windows\""
+markers = "platform_system == \"Windows\" and python_version >= \"3.12\""
 files = [
     {file = "winrt_Windows.Foundation-2.3.0-cp310-cp310-win32.whl", hash = "sha256:ea7b0e82be5c05690fedaf0dac5aa5e5fefd7ebf90b1497e5993197d305d916d"},
     {file = "winrt_Windows.Foundation-2.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:6807dd40f8ecd6403679f6eae0db81674fdcf33768d08fdee66e0a17b7a02515"},
@@ -1638,7 +1754,7 @@ description = "Python projection of Windows Runtime (WinRT) APIs"
 optional = false
 python-versions = "<3.14,>=3.9"
 groups = ["main"]
-markers = "python_version >= \"3.12\" and python_version < \"3.14\" and platform_system == \"Windows\""
+markers = "platform_system == \"Windows\" and python_version >= \"3.12\""
 files = [
     {file = "winrt_Windows.Foundation.Collections-2.3.0-cp310-cp310-win32.whl", hash = "sha256:d2fca59eef9582a33c2797b1fda1d5757d66827cc34e6fc1d1c94a5875c4c043"},
     {file = "winrt_Windows.Foundation.Collections-2.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:d14b47d9137aebad71aa4fde5892673f2fa326f5f4799378cb9f6158b07a9824"},
@@ -1671,7 +1787,7 @@ description = "Python projection of Windows Runtime (WinRT) APIs"
 optional = false
 python-versions = "<3.14,>=3.9"
 groups = ["main"]
-markers = "python_version >= \"3.12\" and python_version < \"3.14\" and platform_system == \"Windows\""
+markers = "platform_system == \"Windows\" and python_version >= \"3.12\""
 files = [
     {file = "winrt_Windows.Storage.Streams-2.3.0-cp310-cp310-win32.whl", hash = "sha256:2c0901aee1232e92ed9320644b853d7801a0bdb87790164d56e961cd39910f07"},
     {file = "winrt_Windows.Storage.Streams-2.3.0-cp310-cp310-win_amd64.whl", hash = "sha256:ba07dc25decffd29aa8603119629c167bd03fa274099e3bad331a4920c292b78"},
@@ -1703,4 +1819,4 @@ docs = ["Sphinx", "myst-parser", "sphinx-rtd-theme"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "a03a411439794efde1907cb1d0728a7be1eeb67f8c36c860e6e684a3fcea2915"
+content-hash = "21c862595ba25a2c8bc5a34a18d7df6b513016a05514fb57279e4db47e04ffcf"
