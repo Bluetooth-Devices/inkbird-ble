@@ -42,6 +42,7 @@ def make_bluetooth_service_info(  # noqa: PLR0913
     rssi: int,
     service_data: dict[UUID, bytes],
     source: str,
+    tx_power: int = 0,
 ) -> BluetoothServiceInfoBleak:
     return BluetoothServiceInfoBleak(
         name=name,
@@ -60,7 +61,7 @@ def make_bluetooth_service_info(  # noqa: PLR0913
         time=monotonic_time_coarse(),
         advertisement=None,
         connectable=True,
-        tx_power=0,
+        tx_power=tx_power,
     )
 
 
