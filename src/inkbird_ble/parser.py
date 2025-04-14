@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
 
     from bleak import BleakGATTCharacteristic, BLEDevice
-    from home_assistant_bluetooth import BluetoothServiceInfo
+    from home_assistant_bluetooth import BluetoothServiceInfoBleak
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -325,7 +325,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         return self._device_type in NOTIFY_MODELS
 
     async def async_start(
-        self, service_info: BluetoothServiceInfo, ble_device: BLEDevice
+        self, service_info: BluetoothServiceInfoBleak, ble_device: BLEDevice
     ) -> None:
         """Start the device."""
         self._set_name_and_manufacturer(service_info)
@@ -430,7 +430,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             return info.name
         return self._device_type.name if self._device_type else "Unknown"
 
-    def _set_name_and_manufacturer(self, service_info: BluetoothServiceInfo) -> None:
+    def _set_name_and_manufacturer(
+        self, service_info: BluetoothServiceInfoBleak
+    ) -> None:
         if self._device_type is None:
             return
         self.set_device_manufacturer("INKBIRD")
@@ -445,7 +447,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self.set_device_name(f"{dev_type_name} {short_address(address)}")
             self.set_device_type(dev_type_name)
 
-    def _start_update(self, service_info: BluetoothServiceInfo) -> None:
+    def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
         if not (manufacturer_data := service_info.manufacturer_data):
@@ -493,10 +495,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
         self._device_type_dispatch[self._device_type](self, data, msg_length)
-        self._last_full_update = monotonic_time_coarse()
+        self._last_full_update = service_info.time
 
     def poll_needed(
-        self, service_info: BluetoothServiceInfo, last_poll: float | None
+        self, service_info: BluetoothServiceInfoBleak, last_poll: float | None
     ) -> bool:
         """
         This is called every time we get a service_info for a device or if

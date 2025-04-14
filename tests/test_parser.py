@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakCharacteristicNotFoundError, BleakError
-from bluetooth_sensor_state_data import BluetoothServiceInfo, DeviceClass, SensorUpdate
+from bluetooth_data_tools import monotonic_time_coarse
+from bluetooth_sensor_state_data import DeviceClass, SensorUpdate
+from home_assistant_bluetooth import BluetoothServiceInfoBleak
 from sensor_state_data import (
     DeviceKey,
     SensorDescription,
@@ -32,9 +34,39 @@ def test_can_create():
     assert parser.name == "Unknown"
 
 
+def make_bluetooth_service_info(  # noqa: PLR0913
+    name: str,
+    manufacturer_data: dict[int, bytes],
+    service_uuids: list[str],
+    address: str,
+    rssi: int,
+    service_data: dict[UUID, bytes],
+    source: str,
+) -> BluetoothServiceInfoBleak:
+    return BluetoothServiceInfoBleak(
+        name=name,
+        manufacturer_data=manufacturer_data,
+        service_uuids=service_uuids,
+        address=address,
+        rssi=rssi,
+        service_data=service_data,
+        source=source,
+        device=BLEDevice(
+            name=name,
+            address=address,
+            details={},
+            rssi=rssi,
+        ),
+        time=monotonic_time_coarse(),
+        advertisement=None,
+        connectable=True,
+        tx_power=0,
+    )
+
+
 def test_unsupported():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="x",
         manufacturer_data={},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -49,7 +81,7 @@ def test_unsupported():
 
 def test_unsupported_with_manufacturer_data():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="x",
         manufacturer_data={2044: b"\xc7\x12\x00\xc8=V\x06"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -64,7 +96,7 @@ def test_unsupported_with_manufacturer_data():
 
 def test_sps_with_invalid_model_passed():
     parser = INKBIRDBluetoothDeviceData("invalid")
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="sps",
         manufacturer_data={2044: b"\xc7\x12\x00\xc8=V\x06"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -79,7 +111,7 @@ def test_sps_with_invalid_model_passed():
 
 def test_sps():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="sps",
         manufacturer_data={2044: b"\xc7\x12\x00\xc8=V\x06"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -150,7 +182,7 @@ def test_sps():
 
 def test_unknown_sps():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="sps",
         manufacturer_data={
             2063: b"\xc0\x12\x01p\x08d\x06",
@@ -168,7 +200,7 @@ def test_unknown_sps():
 
 def test_sps_variant():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="sps",
         manufacturer_data={
             2083: b"\x12\x01q\x08d\x06",
@@ -185,7 +217,7 @@ def test_sps_variant():
 
 def test_sps_variant2():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="sps",
         manufacturer_data={
             2363: b"\xd0\x13\x00\xce\x90d\x06",
@@ -263,7 +295,7 @@ def test_sps_variant2():
 
 def test_sps_th2_dupe_updates():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="sps",
         manufacturer_data={2248: b"\x84\x14\x00\x88\x99d\x06"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -334,7 +366,7 @@ def test_sps_th2_dupe_updates():
 
 def test_sps_th2():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="sps",
         manufacturer_data={2248: b"\x84\x14\x00\x88\x99d\x06"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -405,7 +437,7 @@ def test_sps_th2():
 
 def test_unknown_tps():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="tps",
         manufacturer_data={
             2120: b"\x00\x00\x00\xc6n\r\x06",
@@ -473,7 +505,7 @@ def test_unknown_tps():
 
 def test_ibbq_4():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="iBBQ",
         manufacturer_data={
             0: b"\x00\x000\xe2\x83}\xb5\x02\x04\x01\xfa\x00\x04\x01\xfa\x00"
@@ -556,7 +588,7 @@ def test_ibbq_4():
 
 def test_ibt_2x():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="xBBQ",
         manufacturer_data={1: b"\x00\x00,\x11\x00\x00m\xd3\x14\x01\x11\x01"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -618,7 +650,7 @@ def test_ibt_2x():
 def test_xbbq_2a_adv1():
     """Test xBBQ2 accepts 1 updates."""
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="xBBQ",
         manufacturer_data={1: b"\x00\x00V\x11\x00\x00\x7fs\xf8\x00\xff\xff"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -682,7 +714,7 @@ def test_xbbq_2a_adv1():
 def test_xbbq_2a_adv2():
     """Test xBBQ2 ignores 2 updates."""
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="xBBQ",
         manufacturer_data={2: b"\x00\x00V\x11\x00\x00\x7fs\x9a\x00\x13\x00"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -749,7 +781,7 @@ def test_xbbq_2a_adv2():
 def test_xbbq_multiple_mfr_data():
     """Test xBBQ2 ignores 2 updates when there re multiple."""
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="xBBQ",
         manufacturer_data={
             1: b"\x00\x00,\x11\x00\x00m\xd3\x11\x01\x12\x01",
@@ -818,7 +850,7 @@ def test_corrupt_name(model: Model | str) -> None:
     """Test corrupt name."""
     parser = INKBIRDBluetoothDeviceData(model)
     assert parser.device_type == Model.IBS_TH
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="N0BYD",
         manufacturer_data={63915: b"\x1b\x1e\x00H\xe37\x08"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -891,7 +923,7 @@ def test_corrupt_name(model: Model | str) -> None:
 
 def test_ith_21_b():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="ITH-21-B",
         manufacturer_data={
             9289: b"\x07\x11\x00\x98\xd8\x00\x13\x02d\x01\x90\x04\x00\x00\x00\x00",
@@ -969,7 +1001,7 @@ def test_ith_31_b():
     parser = INKBIRDBluetoothDeviceData()
     # 26.8C 53% b'\x12#\x05/\x0e\x01\x10\x02d\x00\x00\x00\x00\x00\x00\x00'
     # 24.0C 50% b'\x12#\x05/\xf0\x00\xf9\x01d\x00\x00\x04\x00\x00\x00\x00'
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="ITH-13-B",
         manufacturer_data={
             9289: b"\x12#\x05/\x0e\x01\x10\x02d\x00\x00\x00\x00\x00\x00\x00"
@@ -1042,7 +1074,7 @@ def test_ith_31_b():
         events={},
     )
 
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="ITH-13-B",
         manufacturer_data={
             9289: b"\x12#\x05/\xf0\x00\xf9\x01d\x00\x00\x04\x00\x00\x00\x00"
@@ -1118,7 +1150,7 @@ def test_ith_31_b():
 
 def test_ith_11_b():
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="ITH-11-B",
         manufacturer_data={
             9289: b"\x08\x12\x00^\x00\x00]\x03d\x00d\x08\x00\x00\x00\x00"
@@ -1193,7 +1225,7 @@ def test_ith_11_b():
         events={},
     )
 
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="ITH-11-B",
         manufacturer_data={
             9289: b"\x08\x12\x00^\xfe\xffH\x03d\x00d\x08\x00\x00\x00\x00"
@@ -1271,7 +1303,7 @@ def test_passive_data_needs_polling() -> None:
     """Test passive data need polling."""
     parser = INKBIRDBluetoothDeviceData(Model.IBS_TH)
     assert parser.device_type == Model.IBS_TH
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="N0BYD",
         manufacturer_data={},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -1319,7 +1351,7 @@ async def test_passive_polling_ibs_th() -> None:
     """Test polling with passing data."""
     parser = INKBIRDBluetoothDeviceData(Model.IBS_TH)
     assert parser.device_type == Model.IBS_TH
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="N0BYD",
         manufacturer_data={},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -1400,7 +1432,7 @@ async def test_passive_polling_ith_11_b() -> None:
     """Test polling with passing data."""
     parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
     assert parser.device_type == Model.ITH_11_B
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="N0BYD",
         manufacturer_data={},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -1491,7 +1523,7 @@ async def test_passive_polling_fails_missing_char() -> None:
     """Test polling with passing data."""
     parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
     assert parser.device_type == Model.ITH_11_B
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="N0BYD",
         manufacturer_data={},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -1532,7 +1564,7 @@ async def test_passive_polling_fails_generic_bleak_error() -> None:
     """Test polling with passing data."""
     parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
     assert parser.device_type == Model.ITH_11_B
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="N0BYD",
         manufacturer_data={},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -1572,7 +1604,7 @@ async def test_passive_polling_fails_generic_bleak_error() -> None:
 async def test_passive_detect_iam_t1() -> None:
     """Test polling with passing data."""
     parser = INKBIRDBluetoothDeviceData()
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="",
         manufacturer_data={12628: bytes.fromhex("41432d363230306131336361650000")},
         service_uuids=[],
@@ -1595,7 +1627,7 @@ async def test_notify_does_nothing_not_supported() -> None:
     assert parser.device_type == Model.ITH_11_B
     assert parser.uses_notify is False
     await parser.async_start(
-        BluetoothServiceInfo(
+        make_bluetooth_service_info(
             name="N0BYD",
             manufacturer_data={},
             service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -1633,7 +1665,7 @@ async def test_notify_callbacks_iam_t1_f() -> None:
         Model.IAM_T1, {}, _update_callback, _data_callback
     )
     assert parser.device_type == Model.IAM_T1
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="Ink@IAM-T1",
         manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -1758,7 +1790,7 @@ async def test_notify_iam_t1_c() -> None:
         Model.IAM_T1, {}, _update_callback, _data_callback
     )
     assert parser.device_type == Model.IAM_T1
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="Ink@IAM-T1",
         manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -1884,7 +1916,7 @@ async def test_retry_iam_t1_f() -> None:
         Model.IAM_T1, {}, _update_callback, _data_callback
     )
     assert parser.device_type == Model.IAM_T1
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="Ink@IAM-T1",
         manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
@@ -1954,7 +1986,7 @@ async def test_reconnect_iam_t1_f() -> None:
         Model.IAM_T1, {}, _update_callback, _data_callback
     )
     assert parser.device_type == Model.IAM_T1
-    service_info = BluetoothServiceInfo(
+    service_info = make_bluetooth_service_info(
         name="Ink@IAM-T1",
         manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
