@@ -1,6 +1,15 @@
 # CHANGELOG
 
 
+## v0.13.0 (2025-04-14)
+
+### Features
+
+- Avoid a time call on each parse since its already in the service info
+  ([#89](https://github.com/Bluetooth-Devices/inkbird-ble/pull/89),
+  [`844bcd6`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/844bcd691cc437e55dd545f5b286d85e35bd13f8))
+
+
 ## v0.12.0 (2025-04-13)
 
 ### Features
