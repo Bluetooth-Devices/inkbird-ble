@@ -21,7 +21,11 @@ from uuid import UUID
 
 from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
-from bluetooth_data_tools import monotonic_time_coarse, short_address
+from bluetooth_data_tools import (
+    monotonic_time_coarse,
+    parse_advertisement_data_bytes,
+    short_address,
+)
 from bluetooth_sensor_state_data import BluetoothData, SensorUpdate
 from sensor_state_data import SensorLibrary, Units
 
@@ -450,7 +454,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
-        if not (manufacturer_data := service_info.manufacturer_data):
+        manufacturer_data: dict[int, bytes] | None = None
+        if service_info.raw:
+            _, _, _, manufacturer_data, _ = parse_advertisement_data_bytes(
+                service_info.raw
+            )
+        if not manufacturer_data and not (
+            manufacturer_data := service_info.manufacturer_data
+        ):
             self._set_name_and_manufacturer(service_info)
             return
         last_id = list(manufacturer_data)[-1]

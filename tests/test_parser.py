@@ -43,6 +43,7 @@ def make_bluetooth_service_info(  # noqa: PLR0913
     service_data: dict[UUID, bytes],
     source: str,
     tx_power: int = 0,
+    raw: bytes | None = None,
 ) -> BluetoothServiceInfoBleak:
     return BluetoothServiceInfoBleak(
         name=name,
@@ -62,6 +63,7 @@ def make_bluetooth_service_info(  # noqa: PLR0913
         advertisement=None,
         connectable=True,
         tx_power=tx_power,
+        raw=raw,
     )
 
 
@@ -93,6 +95,23 @@ def test_unsupported_with_manufacturer_data():
     )
     assert parser.supported(service_info) is False
     assert parser.device_type is None
+
+
+def test_raw_manufacturer_data():
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="sps",
+        manufacturer_data={},  # 2044: b"\xc7\x12\x00\xc8=V\x06"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+        raw=b"\x0a\xff\xfc\x07\xc7\x12\x00\xc8=V\x06",
+    )
+    assert parser.supported(service_info) is True
+    assert parser.device_type == Model.IBS_TH
+    assert parser.update(service_info).entity_values
 
 
 def test_sps_with_invalid_model_passed():
