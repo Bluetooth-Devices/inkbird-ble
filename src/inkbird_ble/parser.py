@@ -21,7 +21,11 @@ from uuid import UUID
 
 from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
-from bluetooth_data_tools import monotonic_time_coarse, short_address
+from bluetooth_data_tools import (
+    monotonic_time_coarse,
+    parse_advertisement_data_bytes,
+    short_address,
+)
 from bluetooth_sensor_state_data import BluetoothData, SensorUpdate
 from sensor_state_data import SensorLibrary, Units
 
@@ -478,10 +482,25 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if not MODEL_INFO[self._device_type].parse_adv:
             # Device does not support parsing advertisement data
             return
-        excludes = MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
-        changed_manufacturer_data = self.changed_manufacturer_data(
-            service_info, excludes
-        )
+        changed_manufacturer_data: dict[int, bytes] | None = None
+        if service_info.raw:
+            # If we have the raw data we don't need to work out
+            # which one is the newest.
+            _, _, _, raw_manufacturer_data, _ = parse_advertisement_data_bytes(
+                service_info.raw
+            )
+            changed_manufacturer_data = {
+                k: v
+                for k, v in raw_manufacturer_data.items()
+                if k not in MANUFACTURER_DATA_ID_EXCLUDES
+            }
+        else:
+            excludes = (
+                MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
+            )
+            changed_manufacturer_data = self.changed_manufacturer_data(
+                service_info, excludes
+            )
         if not changed_manufacturer_data or len(changed_manufacturer_data) > 1:
             # If len(changed_manufacturer_data) > 1 it means we switched
             # ble adapters so we do not know which data is the latest
