@@ -1,6 +1,40 @@
 # CHANGELOG
 
 
+## v0.14.0 (2025-04-27)
+
+### Chores
+
+- **deps**: Bump habluetooth from 3.38.0 to 3.38.1
+  ([#91](https://github.com/Bluetooth-Devices/inkbird-ble/pull/91),
+  [`23949ee`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/23949ee90043929488f7f88fe2ca5e35bdf02be6))
+
+Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+
+- **deps**: Bump habluetooth from 3.38.1 to 3.39.0
+  ([#94](https://github.com/Bluetooth-Devices/inkbird-ble/pull/94),
+  [`a11c38a`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/a11c38a3f6d437e68761c253e171cc37de646e67))
+
+Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#90](https://github.com/Bluetooth-Devices/inkbird-ble/pull/90),
+  [`e9d8e02`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/e9d8e0206284f0f7ec4b9e17746120d4fe21c8a7))
+
+Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#93](https://github.com/Bluetooth-Devices/inkbird-ble/pull/93),
+  [`2c9ff35`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/2c9ff35f1f70eaa36be10db447007dcffc3a5922))
+
+Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+
+### Features
+
+- Add support for raw data parsing ([#97](https://github.com/Bluetooth-Devices/inkbird-ble/pull/97),
+  [`af80d38`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/af80d38203d94bbfa434bf6d9a3f98ef4e3c0146))
+
+
 ## v0.13.0 (2025-04-14)
 
 ### Features
