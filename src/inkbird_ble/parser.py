@@ -454,14 +454,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
-        manufacturer_data: dict[int, bytes] | None = None
-        if service_info.raw:
-            _, _, _, manufacturer_data, _ = parse_advertisement_data_bytes(
-                service_info.raw
-            )
-        if not manufacturer_data and not (
-            manufacturer_data := service_info.manufacturer_data
-        ):
+        if not (manufacturer_data := service_info.manufacturer_data):
             self._set_name_and_manufacturer(service_info)
             return
         last_id = list(manufacturer_data)[-1]
@@ -489,10 +482,25 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if not MODEL_INFO[self._device_type].parse_adv:
             # Device does not support parsing advertisement data
             return
-        excludes = MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
-        changed_manufacturer_data = self.changed_manufacturer_data(
-            service_info, excludes
-        )
+        changed_manufacturer_data: dict[int, bytes] | None = None
+        if service_info.raw:
+            # If we have the raw data we don't need to work out
+            # which one is the newest.
+            _, _, _, raw_manufacturer_data, _ = parse_advertisement_data_bytes(
+                service_info.raw
+            )
+            changed_manufacturer_data = {
+                k: v
+                for k, v in raw_manufacturer_data.items()
+                if k not in MANUFACTURER_DATA_ID_EXCLUDES
+            }
+        else:
+            excludes = (
+                MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
+            )
+            changed_manufacturer_data = self.changed_manufacturer_data(
+                service_info, excludes
+            )
         if not changed_manufacturer_data or len(changed_manufacturer_data) > 1:
             # If len(changed_manufacturer_data) > 1 it means we switched
             # ble adapters so we do not know which data is the latest

@@ -101,7 +101,7 @@ def test_raw_manufacturer_data():
     parser = INKBIRDBluetoothDeviceData()
     service_info = make_bluetooth_service_info(
         name="sps",
-        manufacturer_data={},  # 2044: b"\xc7\x12\x00\xc8=V\x06"},
+        manufacturer_data={1: b"\x00"},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
         address="aa:bb:cc:dd:ee:ff",
         rssi=-60,
@@ -111,7 +111,65 @@ def test_raw_manufacturer_data():
     )
     assert parser.supported(service_info) is True
     assert parser.device_type == Model.IBS_TH
-    assert parser.update(service_info).entity_values
+    assert parser.update(service_info) == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="IBS-TH EEFF",
+                model="IBS-TH",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                device_class=SensorDeviceClass.TEMPERATURE,
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                device_class=SensorDeviceClass.HUMIDITY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+            DeviceKey(key="battery", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="battery", device_id=None),
+                device_class=SensorDeviceClass.BATTERY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-60,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorValue(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
+                native_value=20.44,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorValue(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                name="Humidity",
+                native_value=48.07,
+            ),
+            DeviceKey(key="battery", device_id=None): SensorValue(
+                device_key=DeviceKey(key="battery", device_id=None),
+                name="Battery",
+                native_value=86,
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
 
 
 def test_sps_with_invalid_model_passed():
