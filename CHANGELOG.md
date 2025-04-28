@@ -1,6 +1,15 @@
 # CHANGELOG
 
 
+## v0.14.1 (2025-04-28)
+
+### Bug Fixes
+
+- Ensure habluetooth is installed with Python 3.13
+  ([#98](https://github.com/Bluetooth-Devices/inkbird-ble/pull/98),
+  [`e104dc1`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/e104dc162ee0f1885d5cace1ba6af1405fb35837))
+
+
 ## v0.14.0 (2025-04-27)
 
 ### Chores
