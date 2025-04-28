@@ -1772,4 +1772,4 @@ docs = ["Sphinx", "myst-parser", "sphinx-rtd-theme"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "c326d0f946b13e02bbdec2b809972e2916ea96289d54e132f0c00c7ab93a9d65"
+content-hash = "c8efb30588fb025b5d173fb6c807fb0a9c39ff02c072425fb249193e6a372bd8"
