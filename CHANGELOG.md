@@ -1,6 +1,29 @@
 # CHANGELOG
 
 
+## v0.15.0 (2025-04-30)
+
+### Chores
+
+- **deps**: Bump bluetooth-data-tools from 1.28.0 to 1.28.1
+  ([#100](https://github.com/Bluetooth-Devices/inkbird-ble/pull/100),
+  [`714849a`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/714849a7f4d4f35341f73fec29e69752fd94c5bf))
+
+- **deps**: Bump habluetooth from 3.42.0 to 3.44.0
+  ([#101](https://github.com/Bluetooth-Devices/inkbird-ble/pull/101),
+  [`f379f70`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/f379f70f7e4910c2ad2e4b29decde42a9e702c15))
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#99](https://github.com/Bluetooth-Devices/inkbird-ble/pull/99),
+  [`f4830e8`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/f4830e80702c249b4215461b9f69a03e479e811f))
+
+### Features
+
+- Use changed_manufacturer_data from newer bluetooth-sensor-state-data
+  ([#103](https://github.com/Bluetooth-Devices/inkbird-ble/pull/103),
+  [`61d4414`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/61d4414c34535ebded6bf63c6499ffac33ac1265))
+
+
 ## v0.14.1 (2025-04-28)
 
 ### Bug Fixes
