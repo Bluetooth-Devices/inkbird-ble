@@ -1699,6 +1699,26 @@ async def test_passive_detect_iam_t1() -> None:
 
 
 @pytest.mark.asyncio
+async def test_passive_detect_iam_t2() -> None:
+    """Test polling with passing data."""
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="",
+        manufacturer_data={12884: bytes.fromhex("006200a13e2c6a4000e40090027472")},
+        service_uuids=[],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert parser.poll_needed(service_info, None) is False
+    assert parser.name == "IAM-T2 EEFF"
+    assert parser.supported(service_info) is True
+
+
+@pytest.mark.asyncio
 async def test_notify_does_nothing_not_supported() -> None:
     """Test polling with passing data."""
     parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)

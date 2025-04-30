@@ -50,6 +50,7 @@ class Model(StrEnum):
     ITH_13_B = "ITH-13-B"
     ITH_21_B = "ITH-21-B"
     IAM_T1 = "IAM-T1"
+    IAM_T2 = "IAM-T2"
 
 
 class ModelType(Enum):
@@ -195,6 +196,18 @@ MODEL_INFO = {
         name="IAM-T1",
         model_type=ModelType.SENSOR,
         local_name="ink@iam-t1",
+        message_length=17,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=UUID("0000ffe0-0000-1000-8000-00805f9b34fb"),
+        characteristic_uuid=None,
+        notify_uuid=UUID("0000ffe4-0000-1000-8000-00805f9b34fb"),
+        use_local_name_for_device=False,
+        parse_adv=False,
+    ),
+    Model.IAM_T2: ModelInfo(
+        name="IAM-T2",
+        model_type=ModelType.SENSOR,
+        local_name="ink@iam-t2",
         message_length=17,
         unpacker=INKBIRD_UNPACK,
         service_uuid=UUID("0000ffe0-0000-1000-8000-00805f9b34fb"),
@@ -382,23 +395,25 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     ) -> None:
         """Callback for notifications."""
         _LOGGER.debug("Received notification from %s: %s", sender, data)
-        if not self._running or self._device_type != Model.IAM_T1:
+        if not self._running or self._device_type not in (Model.IAM_T1, Model.IAM_T2):
             return
         # IAM_T1
         if len(data) == 12:  # noqa: PLR2004
             in_f = data[10] & 0xF
             unit = Units.TEMP_FAHRENHEIT if in_f else Units.TEMP_CELSIUS
-            _LOGGER.debug("IAM-T1 unit: %s (%s)", unit, self._device_data)
+            _LOGGER.debug("IAM-T1/2 unit: %s (%s)", unit, self._device_data)
             if unit != self._device_data.get("temp_unit"):
                 self._device_data["temp_unit"] = unit
                 assert self._device_data_changed_callback is not None
-                _LOGGER.debug("IAM-T1 unit changed: %s (%s)", unit, self._device_data)
+                _LOGGER.debug("IAM-T1/2 unit changed: %s (%s)", unit, self._device_data)
                 self._device_data_changed_callback(self._device_data)
         elif len(data) == 16:  # noqa: PLR2004
             sign = data[4] & 0xF
             temp = data[5] << 8 | data[6]
             signed_temp = (temp if sign == 0 else -temp) / 10
-            _LOGGER.debug("IAM-T1 temperature: %s (%s)", signed_temp, self._device_data)
+            _LOGGER.debug(
+                "IAM-T1/2 temperature: %s (%s)", signed_temp, self._device_data
+            )
             if self._device_data.get("temp_unit") == Units.TEMP_FAHRENHEIT:
                 # Convert to Celsius
                 signed_temp = round((signed_temp - 32) * 5 / 9, 2)
@@ -476,6 +491,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             ):
                 # AC-6200
                 self._device_type = Model.IAM_T1
+            elif 12884 in manufacturer_data and manufacturer_data[12884].startswith(  # noqa: PLR2004
+                b"\x00b\x00"
+            ):
+                self._device_type = Model.IAM_T2
             else:
                 return
         self._set_name_and_manufacturer(service_info)
