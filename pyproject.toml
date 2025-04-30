@@ -23,13 +23,13 @@ packages = [
 "Changelog" = "https://github.com/bluetooth-devices/inkbird-ble/blob/main/CHANGELOG.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<3.14"
 
 # Documentation Dependencies
 Sphinx = {version = ">=5,<9", optional = true}
 sphinx-rtd-theme = {version = ">=1,<4", optional = true}
 myst-parser = {version = ">=0.18,<4.1", optional = true}
-bluetooth-sensor-state-data = ">=1.6.1"
+bluetooth-sensor-state-data = ">=1.8.0"
 habluetooth = {version = ">=3.42.0", python = ">=3.11,<3.14"}
 sensor-state-data = ">=2.2.0"
 bluetooth-data-tools = ">=1.28.0"
