@@ -49,6 +49,7 @@ class Model(StrEnum):
     ITH_11_B = "ITH-11-B"
     ITH_13_B = "ITH-13-B"
     ITH_21_B = "ITH-21-B"
+    GENERIC_18 = "Generic 18 byte model"
     IAM_T1 = "IAM-T1"
 
 
@@ -74,7 +75,7 @@ class ModelInfo:
 
 
 INKBIRD_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
-SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID(
+EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID(
     "0000fff7-0000-1000-8000-00805f9b34fb"
 )
 NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID("0000fff2-0000-1000-8000-00805f9b34fb")
@@ -155,14 +156,26 @@ MODEL_INFO = {
         use_local_name_for_device=False,
         parse_adv=True,
     ),
+    Model.GENERIC_18: ModelInfo(
+        name="Unknown 18-byte model",
+        model_type=ModelType.SENSOR,
+        local_name="unknown",
+        message_length=18,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=INKBIRD_SERVICE_UUID,
+        characteristic_uuid=EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        notify_uuid=None,
+        use_local_name_for_device=False,
+        parse_adv=True,
+    ),
     Model.IBS_P02B: ModelInfo(
         name="IBS-P02B",
         model_type=ModelType.SENSOR,
         local_name="ibs-p02b",
-        message_length=16,
+        message_length=18,
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
-        characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        characteristic_uuid=EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
@@ -171,10 +184,10 @@ MODEL_INFO = {
         name="ITH-11-B",
         model_type=ModelType.SENSOR,
         local_name="ith-11-b",
-        message_length=16,
+        message_length=18,
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
-        characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        characteristic_uuid=EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
@@ -183,10 +196,10 @@ MODEL_INFO = {
         name="ITH-13-B",
         model_type=ModelType.SENSOR,
         local_name="ith-13-b",
-        message_length=16,
+        message_length=18,
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
-        characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        characteristic_uuid=EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
@@ -195,10 +208,10 @@ MODEL_INFO = {
         name="ITH-21-B",
         model_type=ModelType.SENSOR,
         local_name="ith-21-b",
-        message_length=16,
+        message_length=18,
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
-        characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        characteristic_uuid=EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
@@ -238,14 +251,14 @@ NINE_BYTE_SENSOR_MODELS = {
     for model_type, model_info in MODEL_INFO.items()
     if model_info.model_type is ModelType.SENSOR and model_info.message_length == 9  # noqa: PLR2004
 }
-SIXTEEN_BYTE_SENSOR_MODELS = {
+EIGHTEEN_BYTE_SENSOR_MODELS = {
     model_type
     for model_type, model_info in MODEL_INFO.items()
-    if model_info.model_type is ModelType.SENSOR and model_info.message_length == 16  # noqa: PLR2004
+    if model_info.model_type is ModelType.SENSOR and model_info.message_length == 18  # noqa: PLR2004
 }
 SENSOR_MODELS = {
     *NINE_BYTE_SENSOR_MODELS,
-    *SIXTEEN_BYTE_SENSOR_MODELS,
+    *EIGHTEEN_BYTE_SENSOR_MODELS,
 }
 BBQ_LENGTH_TO_TYPE = {
     model_info.message_length: model_type
@@ -472,7 +485,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
         msg_length = len(data)
-        if self._device_type is None:
+        if self._device_type in (None, Model.GENERIC_18):
             lower_name = service_info.name.lower()
             # If we do not know the device type yet, try to determine it
             # from the advertisement data.
@@ -483,6 +496,13 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 self._device_type = INKBIRD_NAMES[lower_name]
             elif is_bbq(lower_name) and msg_length in BBQ_LENGTH_TO_TYPE:
                 self._device_type = BBQ_LENGTH_TO_TYPE[msg_length]
+            elif (
+                msg_length == 18  # noqa: PLR2004
+                and 9289 in manufacturer_data  # noqa: PLR2004
+                and "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
+                and manufacturer_data[9289].endswith(b"\x00\x00\x00")
+            ):
+                self._device_type = Model.GENERIC_18
             elif 12628 in manufacturer_data and manufacturer_data[12628].startswith(  # noqa: PLR2004
                 b"AC-6200"
             ):
@@ -491,6 +511,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             else:
                 return
         self._set_name_and_manufacturer(service_info)
+        assert self._device_type is not None
         if not MODEL_INFO[self._device_type].parse_adv:
             # Device does not support parsing advertisement data
             return
@@ -558,8 +579,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
         payload = await self._async_connect_and_read(ble_device)
-        if self._device_type in SIXTEEN_BYTE_SENSOR_MODELS:
-            self._update_sixteen_byte_model_from_raw(payload[5:9], payload[9])
+        if self._device_type in EIGHTEEN_BYTE_SENSOR_MODELS:
+            self._update_eighteen_byte_model_from_raw(payload[5:9], payload[9])
         elif self._device_type in NINE_BYTE_SENSOR_MODELS:
             # Battery doesn't seem to be available for these models
             # but it is in the advertisement data
@@ -602,22 +623,20 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # for some models
             self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
 
-    def _update_sixteen_byte_model(self, data: bytes, msg_length: int) -> None:
-        """Update the sensor values for a 16 byte model."""
-        self._update_sixteen_byte_model_from_raw(data[6:10], data[10])
+    def _update_eighteen_byte_model(self, data: bytes, msg_length: int) -> None:
+        """Update the sensor values for a 18 byte model."""
+        self._update_eighteen_byte_model_from_raw(data[6:10], data[10])
 
-    def _update_sixteen_byte_model_from_raw(
+    def _update_eighteen_byte_model_from_raw(
         self, temp_hum_bytes: bytes, bat: int
     ) -> None:
-        """Update the sensor values for a 16 byte model."""
+        """Update the sensor values for a 18 byte model."""
         if TYPE_CHECKING:
             assert self._device_type is not None
         temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
-        if self._device_type != Model.IBS_P02B or (
-            self._device_type == Model.IBS_P02B and hum != 0
-        ):
+        if hum != 0:
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
 
     _device_type_dispatch: ClassVar[
@@ -635,7 +654,7 @@ INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
         INKBIRDBluetoothDeviceData._update_nine_byte_model,  # noqa: SLF001
     ),
     **dict.fromkeys(
-        SIXTEEN_BYTE_SENSOR_MODELS,
-        INKBIRDBluetoothDeviceData._update_sixteen_byte_model,  # noqa: SLF001
+        EIGHTEEN_BYTE_SENSOR_MODELS,
+        INKBIRDBluetoothDeviceData._update_eighteen_byte_model,  # noqa: SLF001
     ),
 }
