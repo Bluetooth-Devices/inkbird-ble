@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.16.1 (2025-05-01)
+
+### Bug Fixes
+
+- Detection of 18 byte models ([#105](https://github.com/Bluetooth-Devices/inkbird-ble/pull/105),
+  [`2f8e6c5`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/2f8e6c5f9a280742c550bf0e2b91ea146aff4b04))
+
+
 ## v0.16.0 (2025-05-01)
 
 ### Features
