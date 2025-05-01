@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.16.0 (2025-05-01)
+
+### Features
+
+- Add support for IBS-P02B ([#104](https://github.com/Bluetooth-Devices/inkbird-ble/pull/104),
+  [`4b853ef`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/4b853efdfb68c6e4446987ce66da598bba7a47cb))
+
+
 ## v0.15.0 (2025-04-30)
 
 ### Chores
