@@ -45,6 +45,7 @@ class Model(StrEnum):
     IBBQ_6 = "iBBQ-6"
     IBS_TH = "IBS-TH"
     IBS_TH2 = "IBS-TH2"
+    IBS_P02B = "IBS-P02B"
     ITH_11_B = "ITH-11-B"
     ITH_13_B = "ITH-13-B"
     ITH_21_B = "ITH-21-B"
@@ -150,6 +151,18 @@ MODEL_INFO = {
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
         characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        notify_uuid=None,
+        use_local_name_for_device=False,
+        parse_adv=True,
+    ),
+    Model.IBS_P02B: ModelInfo(
+        name="IBS-P02B",
+        model_type=ModelType.SENSOR,
+        local_name="ibs-p02b",
+        message_length=16,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=INKBIRD_SERVICE_UUID,
+        characteristic_uuid=SIXTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
         notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
@@ -602,7 +615,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
-        self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
+        if self._device_type != Model.IBS_P02B or (
+            self._device_type == Model.IBS_P02B and hum != 0
+        ):
+            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
 
     _device_type_dispatch: ClassVar[
         dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
