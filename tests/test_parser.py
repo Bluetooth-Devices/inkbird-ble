@@ -2116,3 +2116,67 @@ async def test_reconnect_iam_t1_f() -> None:
         await parser.async_stop()
 
     assert last_update is not None
+
+
+def test_IBS_P02B():
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={9289: bytes.fromhex("11180065d00000005a00800000000000")},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert result == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="IBS-P02B EEFF",
+                model="IBS-P02B",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="temperature", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                device_class=SensorDeviceClass.TEMPERATURE,
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
+            ),
+            DeviceKey(key="battery", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="battery", device_id=None),
+                device_class=SensorDeviceClass.BATTERY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="temperature", device_id=None): SensorValue(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
+                native_value=20.8,
+            ),
+            DeviceKey(key="battery", device_id=None): SensorValue(
+                device_key=DeviceKey(key="battery", device_id=None),
+                name="Battery",
+                native_value=90,
+            ),
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-60,
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
