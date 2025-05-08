@@ -133,3 +133,16 @@ select = [
     "TID", # Tidy imports
     "TRY", # tryceratops
 ]
+
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*" = [
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D104",
+    "S101",
+    "PLR2004",
+    "PLR0915",
+]

@@ -2112,7 +2112,7 @@ async def test_reconnect_iam_t1_f() -> None:
         assert start_notify_calls == 1
         async_fire_time_changed(datetime.utcnow() + timedelta(seconds=5))
         await asyncio.sleep(0)
-        assert start_notify_calls == 2  # noqa: PLR2004
+        assert start_notify_calls == 2
         await parser.async_stop()
 
     assert last_update is not None
@@ -2307,4 +2307,385 @@ def test_IBS_P02B_passive_detection():
         binary_entity_descriptions={},
         binary_entity_values={},
         events={},
+    )
+
+
+def test_IBS_P02B_multiple_updates():
+    """Test multiple sequential updates from an IBS-P02B device with real-world data.
+
+    This test uses real data captured from an IBS-P02B device to verify that the
+    parser correctly handles multiple updates with varying signal strengths
+    but consistent temperature readings.
+    """
+    parser = INKBIRDBluetoothDeviceData()
+
+    # 1st update - 2025-05-08 23:36:23.808
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-83,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -83
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 95
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 2nd update - 2025-05-08 23:36:44.518
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-77,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -77
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 96
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 3rd update - 2025-05-08 23:37:52.300
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-73,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -73
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 95
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 4th update - 2025-05-08 23:38:25.011
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-74,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -74
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 96
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 5th update - 2025-05-08 23:39:52.325
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-79,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -79
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 95
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 6th update - 2025-05-08 23:40:53.261
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-78,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -78
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 96
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 7th update - 2025-05-08 23:42:47.511
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-72,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -72
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 95
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 8th update - 2025-05-08 23:43:48.405
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-78,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -78
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 96
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 9th update - 2025-05-08 23:44:37.322
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-75,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -75
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 95
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 10th update - 2025-05-08 23:46:30.410
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-76,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -76
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 96
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 11th update - 2025-05-08 23:46:37.319
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-81,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00_\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -81
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 95
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # 12th update - 2025-05-08 23:47:57.110
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={
+            9289: b"\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:24:11:18:00:65",
+        rssi=-78,
+        service_data={},
+        source="B8:D6:1A:8B:C7:C6",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff\t\tIBS-P02B\x13\xffI$\x11\x18\x00ev\x01\x00\x00`\x00\x00\x01\x00\x00\x00\x00",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert (
+        result.entity_values[
+            DeviceKey(key="signal_strength", device_id=None)
+        ].native_value
+        == -78
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value
+        == 96
+    )
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
+    )
+
+    # Verify device information is consistent throughout all updates
+    assert result.devices[None].name == "IBS-P02B 0065"
+    assert result.devices[None].model == "IBS-P02B"
+    assert result.devices[None].manufacturer == "INKBIRD"
+
+    # Verify that temperature was consistent throughout all updates
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 37.4
     )
