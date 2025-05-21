@@ -1,6 +1,30 @@
 # CHANGELOG
 
 
+## v0.16.2 (2025-05-21)
+
+### Bug Fixes
+
+- Update poetry to v2 ([#112](https://github.com/Bluetooth-Devices/inkbird-ble/pull/112),
+  [`aed3011`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/aed301162cbccc3af277b2487458134f24be13c4))
+
+### Chores
+
+- Add test for 12 updates in a row from an IBS-P02B
+  ([#109](https://github.com/Bluetooth-Devices/inkbird-ble/pull/109),
+  [`e3f9829`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/e3f98298b781d58ad1782ca04daf002769d08481))
+
+- Add tests for real world data from IBS-P02B
+  ([#108](https://github.com/Bluetooth-Devices/inkbird-ble/pull/108),
+  [`c529358`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/c529358b29f4dd98f93be0558af858dffa7fc15f))
+
+- **pre-commit.ci**: Pre-commit autoupdate
+  ([#106](https://github.com/Bluetooth-Devices/inkbird-ble/pull/106),
+  [`61a4076`](https://github.com/Bluetooth-Devices/inkbird-ble/commit/61a40763626e4ca058b7be792e86d8970b697ecd))
+
+Co-authored-by: pre-commit-ci[bot] <66853113+pre-commit-ci[bot]@users.noreply.github.com>
+
+
 ## v0.16.1 (2025-05-01)
 
 ### Bug Fixes
