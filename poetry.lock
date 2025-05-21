@@ -232,14 +232,14 @@ docs = ["Sphinx (>=5,<9)", "myst-parser (>=0.18,<4.1)", "sphinx-rtd-theme (>=1,<
 
 [[package]]
 name = "bluetooth-sensor-state-data"
-version = "1.8.0"
+version = "1.9.0"
 description = "Models for storing and converting Bluetooth Sensor State Data"
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "bluetooth_sensor_state_data-1.8.0-py3-none-any.whl", hash = "sha256:c001541d176da0071dd96b63e6327e7afa158c88726fd638b77042d8d823ca6c"},
-    {file = "bluetooth_sensor_state_data-1.8.0.tar.gz", hash = "sha256:b97a6c29da8b1c430e2524c1b1267e9981bee15d5cdf49f33c8b6e40ed69c9e8"},
+    {file = "bluetooth_sensor_state_data-1.9.0-py3-none-any.whl", hash = "sha256:adf3b17774011f188b8002c54b669e24cd60d3332ef42facd18baa60c56077e3"},
+    {file = "bluetooth_sensor_state_data-1.9.0.tar.gz", hash = "sha256:d289b86e4a65a5bccce6310f686d6f3e4ac4a2c56a13c2fccb475a6894667139"},
 ]
 
 [package.dependencies]
@@ -248,7 +248,7 @@ habluetooth = ">=3.42.0"
 sensor-state-data = ">=2.0"
 
 [package.extras]
-docs = ["Sphinx (>=5,<8)", "myst-parser (>=0.18,<3.1)", "sphinx-rtd-theme (>=1,<4)"]
+docs = ["Sphinx (>=5,<8)", "myst-parser (>=0.18,<4.1)", "sphinx-rtd-theme (>=1,<4)"]
 
 [[package]]
 name = "btsocket"
