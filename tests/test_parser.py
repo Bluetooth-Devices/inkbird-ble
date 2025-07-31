@@ -2689,3 +2689,21 @@ def test_IBS_P02B_multiple_updates():
         result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
         == 37.4
     )
+
+
+def test_iam_t2_detection() -> None:
+    """Test IAM-T2 device detection from advertisement data."""
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e38e52400b402700326d5")},
+        service_uuids=[],
+        address="62:00:A1:3E:38:E5",
+        rssi=-79,
+        service_data={},
+        source="local",
+    )
+    parser = INKBIRDBluetoothDeviceData()
+    parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert parser.supported(service_info) is True
+    assert parser.uses_notify is False

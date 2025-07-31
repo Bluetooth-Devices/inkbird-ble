@@ -51,6 +51,7 @@ class Model(StrEnum):
     ITH_21_B = "ITH-21-B"
     GENERIC_18 = "Generic 18 byte model"
     IAM_T1 = "IAM-T1"
+    IAM_T2 = "IAM-T2"
 
 
 class ModelType(Enum):
@@ -228,6 +229,18 @@ MODEL_INFO = {
         use_local_name_for_device=False,
         parse_adv=False,
     ),
+    Model.IAM_T2: ModelInfo(
+        name="IAM-T2",
+        model_type=ModelType.SENSOR,
+        local_name="ink@iam-t2",
+        message_length=17,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=None,
+        characteristic_uuid=None,
+        notify_uuid=None,
+        use_local_name_for_device=False,
+        parse_adv=True,
+    ),
 }
 
 INKBIRD_NAMES = {
@@ -256,9 +269,15 @@ EIGHTEEN_BYTE_SENSOR_MODELS = {
     for model_type, model_info in MODEL_INFO.items()
     if model_info.model_type is ModelType.SENSOR and model_info.message_length == 18  # noqa: PLR2004
 }
+SEVENTEEN_BYTE_SENSOR_MODELS = {
+    model_type
+    for model_type, model_info in MODEL_INFO.items()
+    if model_info.model_type is ModelType.SENSOR and model_info.message_length == 17 and model_info.parse_adv  # noqa: PLR2004
+}
 SENSOR_MODELS = {
     *NINE_BYTE_SENSOR_MODELS,
     *EIGHTEEN_BYTE_SENSOR_MODELS,
+    *SEVENTEEN_BYTE_SENSOR_MODELS,
 }
 BBQ_LENGTH_TO_TYPE = {
     model_info.message_length: model_type
@@ -508,6 +527,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             ):
                 # AC-6200
                 self._device_type = Model.IAM_T1
+            elif 12884 in manufacturer_data and len(manufacturer_data[12884]) == 15:  # noqa: PLR2004
+                # IAM-T2
+                self._device_type = Model.IAM_T2
             else:
                 return
         self._set_name_and_manufacturer(service_info)
@@ -639,6 +661,38 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if hum != 0:
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
 
+    def _update_seventeen_byte_model(self, data: bytes, msg_length: int) -> None:
+        """Update the sensor values for 17-byte sensor models (IAM-T2)."""
+        # IAM-T2 broadcasts 15 bytes of manufacturer data
+        # Format: MAC(6) + 0xE5(1) + 0x24(1) + status(1) + temp(1) + hum(2) + co2(2) + battery(1)
+        if len(data) < 17:  # 2 bytes manufacturer ID + 15 bytes data
+            _LOGGER.debug("IAM-T2: Invalid data length: %s", len(data))
+            return
+
+        # Skip the first 2 bytes (manufacturer ID)
+        iam_data = data[2:]
+
+        if len(iam_data) != 15:
+            _LOGGER.debug("IAM-T2: Invalid manufacturer data length: %s", len(iam_data))
+            return
+
+        # Validate fixed bytes
+        if iam_data[6] != 0xE5 or iam_data[7] != 0x24:
+            _LOGGER.debug("IAM-T2: Invalid fixed bytes: %02x %02x", iam_data[6], iam_data[7])
+            return
+
+        # Parse sensor values
+        temperature = iam_data[9] / 10.0
+        humidity = ((iam_data[10] << 8) | iam_data[11]) / 10.0
+        co2 = (iam_data[12] << 8) | iam_data[13]
+        # Note: byte 14 appears to be battery-related but encoding is unclear (always 213/0xD5)
+
+        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temperature)
+        self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
+        self.update_predefined_sensor(
+            SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION, co2
+        )
+
     _device_type_dispatch: ClassVar[
         dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
     ]
@@ -656,5 +710,9 @@ INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
     **dict.fromkeys(
         EIGHTEEN_BYTE_SENSOR_MODELS,
         INKBIRDBluetoothDeviceData._update_eighteen_byte_model,  # noqa: SLF001
+    ),
+    **dict.fromkeys(
+        SEVENTEEN_BYTE_SENSOR_MODELS,
+        INKBIRDBluetoothDeviceData._update_seventeen_byte_model,  # noqa: SLF001
     ),
 }
