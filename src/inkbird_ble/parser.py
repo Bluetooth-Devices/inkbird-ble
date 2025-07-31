@@ -273,7 +273,7 @@ SEVENTEEN_BYTE_SENSOR_MODELS = {
     model_type
     for model_type, model_info in MODEL_INFO.items()
     if model_info.model_type is ModelType.SENSOR
-    and model_info.message_length == 17
+    and model_info.message_length == 17  # noqa: PLR2004
     and model_info.parse_adv
 }
 SENSOR_MODELS = {
@@ -668,19 +668,19 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # IAM-T2 broadcasts 15 bytes of manufacturer data
         # Format: MAC(6) + 0xE5(1) + 0x24(1) + status(1) + temp(1) + hum(2) +
         #         co2(2) + battery(1)
-        if len(data) < 17:  # 2 bytes manufacturer ID + 15 bytes data
+        if len(data) < 17:  # 2 bytes manufacturer ID + 15 bytes data # noqa: PLR2004
             _LOGGER.debug("IAM-T2: Invalid data length: %s", len(data))
             return
 
         # Skip the first 2 bytes (manufacturer ID)
         iam_data = data[2:]
 
-        if len(iam_data) != 15:
+        if len(iam_data) != 15:  # noqa: PLR2004
             _LOGGER.debug("IAM-T2: Invalid manufacturer data length: %s", len(iam_data))
             return
 
         # Validate fixed bytes
-        if iam_data[6] != 0xE5 or iam_data[7] != 0x24:
+        if iam_data[6] != 0xE5 or iam_data[7] != 0x24:  # noqa: PLR2004
             _LOGGER.debug(
                 "IAM-T2: Invalid fixed bytes: %02x %02x", iam_data[6], iam_data[7]
             )
