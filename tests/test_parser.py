@@ -2891,3 +2891,39 @@ def test_iam_t2_fahrenheit_mode_82f() -> None:
         ].native_value
         == 667
     )
+
+
+def test_iam_t2_detection_without_name() -> None:
+    """Test IAM-T2 device detection from manufacturer data alone without device name."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Real data but with empty/generic name to test manufacturer data detection
+    service_info = make_bluetooth_service_info(
+        name="",  # Empty name to force detection via manufacturer data
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed4011701ee025391")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-65,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    assert parser.supported(service_info) is True
+    assert parser.device_type == Model.IAM_T2
+
+    result = parser.update(service_info)
+    assert result is not None
+
+    # Verify it still parses data correctly
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 27.9
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 49.4
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 595
+    )
