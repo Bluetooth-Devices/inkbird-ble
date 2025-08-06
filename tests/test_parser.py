@@ -2783,3 +2783,166 @@ def test_iam_t2_sensor_data() -> None:
         binary_entity_values={},
         events={},
     )
+
+
+def test_iam_t2_real_world_data_1() -> None:
+    """Test IAM-T2 with real-world data from issue #96 - example 1."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Data: 006200a13e2c6a4202d001be025f72
+    # MAC: 62:00:A1:3E:2C:6A, temp: d0 (208/10=20.8°C), hum: 01be (446/10=44.6%),
+    # co2: 025f (607 ppm)
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e2c6a4202d001be025f72")},
+        service_uuids=[],
+        address="62:00:A1:3E:2C:6A",
+        rssi=-78,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 20.8
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 44.6
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 607
+    )
+
+
+def test_iam_t2_real_world_data_2() -> None:
+    """Test IAM-T2 with real-world data from issue #96 - example 2."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Data: 006200a13e2c6a4202ca01bd02Mr
+    # MAC: 62:00:A1:3E:2C:6A, temp: ca (202/10=20.2°C), hum: 01bd (445/10=44.5%),
+    # co2: 024d (589 ppm)
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e2c6a4202ca01bd024d72")},
+        service_uuids=[],
+        address="62:00:A1:3E:2C:6A",
+        rssi=-75,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 20.2
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 44.5
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 589
+    )
+
+
+def test_iam_t2_real_world_data_3() -> None:
+    """Test IAM-T2 with real-world data from issue #96 - example 3."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Data: 006200a13e2c6a4202be01b7024372
+    # MAC: 62:00:A1:3E:2C:6A, temp: be (190/10=19.0°C), hum: 01b7 (439/10=43.9%),
+    # co2: 0243 (579 ppm)
+    service_info = make_bluetooth_service_info(
+        name="62-00-A1-3E-2C-6A",
+        manufacturer_data={12884: bytes.fromhex("006200a13e2c6a4202be01b7024372")},
+        service_uuids=[],
+        address="62:00:A1:3E:2C:6A",
+        rssi=-82,
+        service_data={},
+        source="00:1A:7D:DA:71:14",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 19.0
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 43.9
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 579
+    )
+
+
+def test_iam_t2_real_world_data_4() -> None:
+    """Test IAM-T2 with real-world data from issue #96 - example 4."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Data: 006200a13e2c6a4202bf01b8023372
+    # MAC: 62:00:A1:3E:2C:6A, temp: bf (191/10=19.1°C), hum: 01b8 (440/10=44.0%),
+    # co2: 0233 (563 ppm)
+    service_info = make_bluetooth_service_info(
+        name="62-00-A1-3E-2C-6A",
+        manufacturer_data={12884: bytes.fromhex("006200a13e2c6a4202bf01b8023372")},
+        service_uuids=[],
+        address="62:00:A1:3E:2C:6A",
+        rssi=-82,
+        service_data={},
+        source="00:1A:7D:DA:71:14",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 19.1
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 44.0
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 563
+    )
+
+
+def test_iam_t2_passive_scanner_data() -> None:
+    """Test IAM-T2 with data from passive scanner (no device name)."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Data from passive scanner with no device name
+    service_info = make_bluetooth_service_info(
+        name="62:00:A1:3E:2C:6A",
+        manufacturer_data={12884: bytes.fromhex("006200a13e2c6a4202ca01bc023a72")},
+        service_uuids=[],
+        address="62:00:A1:3E:2C:6A",
+        rssi=-85,
+        service_data={},
+        source="24:4C:AB:03:0B:6E",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 20.2
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 44.4
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 570
+    )

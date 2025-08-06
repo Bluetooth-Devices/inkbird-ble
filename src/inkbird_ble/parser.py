@@ -529,7 +529,12 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             ):
                 # AC-6200
                 self._device_type = Model.IAM_T1
-            elif 12884 in manufacturer_data and len(manufacturer_data[12884]) == 15:  # noqa: PLR2004
+            elif (
+                msg_length == 17  # noqa: PLR2004
+                and 12884 in manufacturer_data  # noqa: PLR2004
+                and data[2] == 0x00  # MAC starts with 00:62
+                and data[3] == 0x62  # noqa: PLR2004
+            ):
                 # IAM-T2
                 self._device_type = Model.IAM_T2
             else:
@@ -665,32 +670,16 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
     def _update_seventeen_byte_model(self, data: bytes, msg_length: int) -> None:
         """Update the sensor values for 17-byte sensor models (IAM-T2)."""
-        # IAM-T2 broadcasts 15 bytes of manufacturer data
-        # Format: MAC(6) + 0xE5(1) + 0x24(1) + status(1) + temp(1) + hum(2) +
-        #         co2(2) + battery(1)
-        if len(data) < 17:  # 2 bytes manufacturer ID + 15 bytes data # noqa: PLR2004
-            _LOGGER.debug("IAM-T2: Invalid data length: %s", len(data))
-            return
-
-        # Skip the first 2 bytes (manufacturer ID)
-        iam_data = data[2:]
-
-        if len(iam_data) != 15:  # noqa: PLR2004
-            _LOGGER.debug("IAM-T2: Invalid manufacturer data length: %s", len(iam_data))
-            return
-
-        # Validate fixed bytes
-        if iam_data[6] != 0xE5 or iam_data[7] != 0x24:  # noqa: PLR2004
-            _LOGGER.debug(
-                "IAM-T2: Invalid fixed bytes: %02x %02x", iam_data[6], iam_data[7]
-            )
-            return
-
+        # Data format (17 bytes total):
+        # - Manufacturer ID (2 bytes)
+        # - Data payload (15 bytes):
+        #   MAC(6) + unknown(1) + unknown(1) + status(1) + temp(1) + hum(2) +
+        #   co2(2) + battery(1)
         # Parse sensor values
-        temperature = iam_data[9] / 10.0
-        humidity = ((iam_data[10] << 8) | iam_data[11]) / 10.0
-        co2 = (iam_data[12] << 8) | iam_data[13]
-        # Note: byte 14 appears to be battery-related but encoding is unclear
+        temperature = data[11] / 10.0
+        humidity = ((data[12] << 8) | data[13]) / 10.0
+        co2 = (data[14] << 8) | data[15]
+        # Note: byte 16 appears to be battery-related but encoding is unclear
         # (always 213/0xD5)
 
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temperature)
