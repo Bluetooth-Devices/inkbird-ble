@@ -2822,3 +2822,72 @@ def test_iam_t2_fahrenheit_mode() -> None:
         ].native_value
         == 576
     )
+
+
+def test_iam_t2_celsius_mode() -> None:
+    """Test IAM-T2 in Celsius mode with real data."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Real data from user: 27.9°C, 49.4% humidity, 595 CO2
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed4011701ee025391")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-65,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    # Temperature in Celsius mode
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 27.9
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 49.4
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 595
+    )
+
+
+def test_iam_t2_fahrenheit_mode_82f() -> None:
+    """Test IAM-T2 in Fahrenheit mode with 82°F data."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Real data from user: 82.0°F, 52.3% humidity, 667 CO2
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed60334020b029b91")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-73,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    # 82.0°F = 27.78°C
+    assert (
+        round(
+            result.entity_values[
+                DeviceKey(key="temperature", device_id=None)
+            ].native_value,
+            1,
+        )
+        == 27.8
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 52.3
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 667
+    )
