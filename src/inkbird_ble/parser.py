@@ -673,16 +673,26 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # Data format (17 bytes total):
         # - Manufacturer ID (2 bytes)
         # - Data payload (15 bytes):
-        #   MAC(6) + unknown(1) + unknown(1) + status(1) + temp(1) + hum(2) +
-        #   co2(2) + battery(1)
-        # Parse sensor values
-        temperature = data[11] / 10.0
+        #   MAC(6) + unknown(1) + status(1) + temp(2) + hum(2) + co2(2) + battery(1)
+
+        # Parse status byte
+        status = data[9]
+
+        # Parse sensor values (all big-endian)
+        temperature_raw = (data[10] << 8) | data[11]
         humidity = ((data[12] << 8) | data[13]) / 10.0
         co2 = (data[14] << 8) | data[15]
-        # Note: byte 16 appears to be battery-related but encoding is unclear
-        # (always 213/0xD5)
 
-        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temperature)
+        # Temperature is in tenths of degrees
+        if status & 0x02:  # Fahrenheit mode
+            temperature_f = temperature_raw / 10.0
+            temperature_c = (temperature_f - 32) * 5 / 9
+        else:  # Celsius mode
+            temperature_c = temperature_raw / 10.0
+
+        # TODO: Investigate battery encoding - observed value 145 = 75% on one device
+
+        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temperature_c)
         self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
         self.update_predefined_sensor(
             SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION, co2
