@@ -2689,3 +2689,241 @@ def test_IBS_P02B_multiple_updates():
         result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
         == 37.4
     )
+
+
+def test_iam_t2_detection() -> None:
+    """Test IAM-T2 device detection from advertisement data."""
+    # Using real data from issue #96
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e2c6a4202d001be025f72")},
+        service_uuids=[],
+        address="62:00:A1:3E:2C:6A",
+        rssi=-78,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    parser = INKBIRDBluetoothDeviceData()
+    parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert parser.supported(service_info) is True
+    assert parser.uses_notify is False
+
+
+def test_iam_t2_sensor_data() -> None:
+    """Test IAM-T2 sensor data parsing from advertisement data."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Real data from user: 28.2°C, 55% humidity, 615 CO2
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed4011a0227026791")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-67,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    assert parser.supported(service_info) is True
+    assert parser.device_type == Model.IAM_T2
+    result = parser.update(service_info)
+    assert result == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="IAM-T2 29BE",
+                model="IAM-T2",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                device_class=SensorDeviceClass.TEMPERATURE,
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                device_class=SensorDeviceClass.HUMIDITY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+            DeviceKey(key="carbon_dioxide", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="carbon_dioxide", device_id=None),
+                device_class=SensorDeviceClass.CO2,
+                native_unit_of_measurement=Units.CONCENTRATION_PARTS_PER_MILLION,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-67,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorValue(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
+                native_value=28.2,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorValue(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                name="Humidity",
+                native_value=55.1,
+            ),
+            DeviceKey(key="carbon_dioxide", device_id=None): SensorValue(
+                device_key=DeviceKey(key="carbon_dioxide", device_id=None),
+                name="Carbon Dioxide",
+                native_value=615,
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
+
+
+def test_iam_t2_fahrenheit_mode() -> None:
+    """Test IAM-T2 in Fahrenheit mode with real data."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Real data from user: 82.8°F, 45.7% humidity, 576 CO2
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed6033c01c9024091")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-66,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    # 82.8°F = 28.22°C
+    assert (
+        round(
+            result.entity_values[
+                DeviceKey(key="temperature", device_id=None)
+            ].native_value,
+            1,
+        )
+        == 28.2
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 45.7
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 576
+    )
+
+
+def test_iam_t2_celsius_mode() -> None:
+    """Test IAM-T2 in Celsius mode with real data."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Real data from user: 27.9°C, 49.4% humidity, 595 CO2
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed4011701ee025391")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-65,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    # Temperature in Celsius mode
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 27.9
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 49.4
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 595
+    )
+
+
+def test_iam_t2_fahrenheit_mode_82f() -> None:
+    """Test IAM-T2 in Fahrenheit mode with 82°F data."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Real data from user: 82.0°F, 52.3% humidity, 667 CO2
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed60334020b029b91")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-73,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    # 82.0°F = 27.78°C
+    assert (
+        round(
+            result.entity_values[
+                DeviceKey(key="temperature", device_id=None)
+            ].native_value,
+            1,
+        )
+        == 27.8
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 52.3
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 667
+    )
+
+
+def test_iam_t2_detection_without_name() -> None:
+    """Test IAM-T2 device detection from manufacturer data alone without device name."""
+    parser = INKBIRDBluetoothDeviceData()
+    # Real data but with empty/generic name to test manufacturer data detection
+    service_info = make_bluetooth_service_info(
+        name="",  # Empty name to force detection via manufacturer data
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed4011701ee025391")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-65,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    assert parser.supported(service_info) is True
+    assert parser.device_type == Model.IAM_T2
+
+    result = parser.update(service_info)
+    assert result is not None
+
+    # Verify it still parses data correctly
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 27.9
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 49.4
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="carbon_dioxide", device_id=None)
+        ].native_value
+        == 595
+    )
