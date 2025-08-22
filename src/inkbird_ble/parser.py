@@ -49,6 +49,7 @@ class Model(StrEnum):
     ITH_11_B = "ITH-11-B"
     ITH_13_B = "ITH-13-B"
     ITH_21_B = "ITH-21-B"
+    GENERIC_9 = "Generic 9 byte model"
     GENERIC_18 = "Generic 18 byte model"
     IAM_T1 = "IAM-T1"
     IAM_T2 = "IAM-T2"
@@ -76,11 +77,19 @@ class ModelInfo:
 
 
 INKBIRD_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
+INKBIRD_SERVICE_UUID_STR = str(INKBIRD_SERVICE_UUID).lower()
 EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID(
     "0000fff7-0000-1000-8000-00805f9b34fb"
 )
 NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID("0000fff2-0000-1000-8000-00805f9b34fb")
 IAM_T1_CHARACTERISTIC_UUID = UUID("0000fff4-0000-1000-8000-00805f9b34fb")
+
+# Known Inkbird OUIs (first 3 bytes of MAC address)
+INKBIRD_9BYTE_OUIS = {"49:21:09", "49:22:03", "49:22:08"}  # IBS-TH, IBS-TH2/P01B
+INKBIRD_18BYTE_OUIS = {"49:24:11", "49:24:12"}  # IBS-P02B, ITH-*-B
+
+# Known manufacturer IDs
+INKBIRD_18BYTE_MANUFACTURER_ID = 9289  # Used by ITH-*-B and IBS-P02B models
 
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
@@ -149,6 +158,18 @@ MODEL_INFO = {
         name="IBS-TH2/P01B",
         model_type=ModelType.SENSOR,
         local_name="tps",
+        message_length=9,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=INKBIRD_SERVICE_UUID,
+        characteristic_uuid=NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID,
+        notify_uuid=None,
+        use_local_name_for_device=False,
+        parse_adv=True,
+    ),
+    Model.GENERIC_9: ModelInfo(
+        name="Unknown 9-byte model",
+        model_type=ModelType.SENSOR,
+        local_name="unknown",
         message_length=9,
         unpacker=INKBIRD_UNPACK,
         service_uuid=INKBIRD_SERVICE_UUID,
@@ -497,31 +518,56 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self.set_device_name(f"{dev_type_name} {short_address(address)}")
             self.set_device_type(dev_type_name)
 
-    def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
+    def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:  # noqa: PLR0912
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
         if not (manufacturer_data := service_info.manufacturer_data):
+            # In passive mode, we might not have manufacturer data
+            # Try to detect based on OUI and service UUID
+            if (
+                INKBIRD_SERVICE_UUID_STR in service_info.service_uuids
+                and service_info.address[:8] in INKBIRD_9BYTE_OUIS
+            ):
+                self._device_type = Model.GENERIC_9
+            elif (
+                INKBIRD_SERVICE_UUID_STR in service_info.service_uuids
+                and service_info.address[:8] in INKBIRD_18BYTE_OUIS
+            ):
+                self._device_type = Model.GENERIC_18
             self._set_name_and_manufacturer(service_info)
             return
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
         msg_length = len(data)
-        if self._device_type in (None, Model.GENERIC_18):
+        if self._device_type in (None, Model.GENERIC_18, Model.GENERIC_9):
             lower_name = service_info.name.lower()
             # If we do not know the device type yet, try to determine it
             # from the advertisement data.
             if (lower_name in INKBIRD_NAMES) and (
                 msg_length in SENSOR_MSG_LENGTHS
-                or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
+                or INKBIRD_SERVICE_UUID_STR in service_info.service_uuids
             ):
                 self._device_type = INKBIRD_NAMES[lower_name]
             elif is_bbq(lower_name) and msg_length in BBQ_LENGTH_TO_TYPE:
                 self._device_type = BBQ_LENGTH_TO_TYPE[msg_length]
             elif (
+                msg_length == 9  # noqa: PLR2004
+                and INKBIRD_SERVICE_UUID_STR in service_info.service_uuids
+                and service_info.address[:8] in INKBIRD_9BYTE_OUIS
+            ):
+                self._device_type = Model.GENERIC_9
+            elif (
                 msg_length == 18  # noqa: PLR2004
-                and 9289 in manufacturer_data  # noqa: PLR2004
-                and "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
-                and manufacturer_data[9289].endswith(b"\x00\x00\x00")
+                and INKBIRD_SERVICE_UUID_STR in service_info.service_uuids
+                and (
+                    (
+                        INKBIRD_18BYTE_MANUFACTURER_ID in manufacturer_data
+                        and manufacturer_data[INKBIRD_18BYTE_MANUFACTURER_ID].endswith(
+                            b"\x00\x00\x00"
+                        )
+                    )
+                    or service_info.address[:8] in INKBIRD_18BYTE_OUIS
+                )
             ):
                 self._device_type = Model.GENERIC_18
             elif 12628 in manufacturer_data and manufacturer_data[12628].startswith(  # noqa: PLR2004

@@ -371,6 +371,102 @@ def test_sps_variant2():
     )
 
 
+def test_sps_variant_3():
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="sps",
+        manufacturer_data={
+            2270: bytes.fromhex("68100154096406"),
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:21:09:09:65:49",
+        rssi=-57,
+        service_data={},
+        source="8C:BF:EA:8F:F0:A6",
+    )
+    assert parser.supported(service_info) is True
+    assert parser.device_type == Model.IBS_TH
+
+    # Also test the parsed values
+    result = parser.update(service_info)
+    assert result == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="IBS-TH 6549",
+                model="IBS-TH",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="battery", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="battery", device_id=None),
+                device_class=DeviceClass.BATTERY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=DeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                device_class=DeviceClass.TEMPERATURE,
+                native_unit_of_measurement=Units.TEMP_CELSIUS,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                device_class=DeviceClass.HUMIDITY,
+                native_unit_of_measurement=Units.PERCENTAGE,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="battery", device_id=None): SensorValue(
+                device_key=DeviceKey(key="battery", device_id=None),
+                native_value=100,  # 0x06 = 6, typically 100% for IBS-TH
+                name="Battery",
+            ),
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-57,
+            ),
+            DeviceKey(key="temperature", device_id=None): SensorValue(
+                device_key=DeviceKey(key="temperature", device_id=None),
+                name="Temperature",
+                native_value=22.7,
+            ),
+            DeviceKey(key="humidity", device_id=None): SensorValue(
+                device_key=DeviceKey(key="humidity", device_id=None),
+                native_value=42.0,
+                name="Humidity",
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
+
+
+def test_generic_9_bytes():
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="",
+        manufacturer_data={
+            2270: bytes.fromhex("68100154096406"),
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:21:09:09:65:49",
+        rssi=-57,
+        service_data={},
+        source="8C:BF:EA:8F:F0:A6",
+    )
+    assert parser.supported(service_info) is True
+    assert parser.device_type == Model.GENERIC_9
+
+
 def test_sps_th2_dupe_updates():
     parser = INKBIRDBluetoothDeviceData()
     service_info = make_bluetooth_service_info(
