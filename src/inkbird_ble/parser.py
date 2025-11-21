@@ -469,7 +469,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self._update_callback(self._finish_update())
         else:
             _LOGGER.debug(
-                "Unexpected notification from %s length: %d header: %s", sender, len(data), bytes(data[:3])
+                "Unexpected notification from %s length: %d header: %s",
+                sender,
+                len(data),
+                bytes(data[:3]),
             )
 
     @property
