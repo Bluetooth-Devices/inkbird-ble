@@ -84,6 +84,10 @@ IAM_T1_CHARACTERISTIC_UUID = UUID("0000fff4-0000-1000-8000-00805f9b34fb")
 
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
+# IAM-T1 notify packet identifiers
+IAM_T1_NOTIFY_DATA_PREFIX = b"\xaa\x01"
+IAM_T1_NOTIFY_STATE_PREFIX = b"\xaa\x05"
+
 MODEL_INFO = {
     Model.IBBQ_1: ModelInfo(
         name="iBBQ-1",
@@ -431,7 +435,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if not self._running or self._device_type != Model.IAM_T1:
             return
         # IAM_T1
-        if len(data) == 12:  # noqa: PLR2004
+        if len(data) == 12 and bytes(data[1:3]) == IAM_T1_NOTIFY_STATE_PREFIX:  # noqa: PLR2004
             in_f = data[10] & 0xF
             unit = Units.TEMP_FAHRENHEIT if in_f else Units.TEMP_CELSIUS
             _LOGGER.debug("IAM-T1 unit: %s (%s)", unit, self._device_data)
@@ -440,7 +444,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 assert self._device_data_changed_callback is not None
                 _LOGGER.debug("IAM-T1 unit changed: %s (%s)", unit, self._device_data)
                 self._device_data_changed_callback(self._device_data)
-        elif len(data) == 16:  # noqa: PLR2004
+        elif len(data) == 16 and bytes(data[1:3]) == IAM_T1_NOTIFY_DATA_PREFIX:  # noqa: PLR2004
             sign = data[4] & 0xF
             temp = data[5] << 8 | data[6]
             signed_temp = (temp if sign == 0 else -temp) / 10
@@ -465,7 +469,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self._update_callback(self._finish_update())
         else:
             _LOGGER.debug(
-                "Unexpected notification length %d from %s", len(data), sender
+                "Unexpected notification from %s length: %d header: %s",
+                sender,
+                len(data),
+                bytes(data[:3]),
             )
 
     @property

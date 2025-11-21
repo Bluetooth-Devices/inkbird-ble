@@ -1887,6 +1887,7 @@ async def test_notify_iam_t1_c() -> None:
         uuid: UUID, callback: Callable[[UUID, bytes], None]
     ) -> None:
         callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x00\x10")
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe8\x01\xf4\x04K\x03")
         callback(uuid, b"U\xaa\x01\x10\x00\x00\xfe\x01\xd6\x02\xd9\x03\xf1\x01\x00\xb5")
 
     mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
@@ -1971,6 +1972,89 @@ async def test_notify_iam_t1_c() -> None:
         binary_entity_values={},
         events={},
     )
+
+
+@pytest.mark.asyncio
+async def test_iam_t1_multiple_updates_with_broken_packet() -> None:
+    """Test IAM-T1 handling multiple updates from issue #119.
+
+    This test validates that the parser correctly processes a sequence of packets
+    including a broken packet (12 bytes with data prefix) that should be ignored.
+    The test uses real packet data from issue #119 where a truncated packet
+    caused the unit to incorrectly switch.
+    """
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    def _data_callback(data: dict[str, Any]) -> None:
+        """Callback for data updates."""
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IAM_T1, {}, _update_callback, _data_callback
+    )
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    disconnect_mock = AsyncMock()
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        # Initial unit setting (Celsius) - doesn't trigger update callback
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x00\x10")
+        # Valid data packet 1: temp=23.3°C, humidity=50.0%, co2=1103ppm
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe9\x01\xf4\x04O\x03\xfe\x01\x00C")
+        # Valid data packet 2: temp=23.2°C, humidity=50.0%, co2=1101ppm
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe8\x01\xf4\x04M\x03\xfe\x01\x00A")
+        # The broken packet (12 bytes with data prefix, should be 16)
+        # This packet will be ignored
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe8\x01\xf4\x04K\x03")
+        # Valid data packet 3 (after broken packet)
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe8\x01\xf4\x04F\x03\xfe\x01\x009")
+        # Valid data packet 4
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe8\x01\xf4\x04D\x03\xfe\x01\x007")
+
+    mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:3C:AE:7B",
+                name="Ink@IAM-T1",
+                details={},
+                rssi=-44,
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    # Should have received updates for the 4 valid data packets
+    # (not the broken one)
+    # This is the key assertion: we got exactly 4 updates,
+    # proving the broken packet was ignored
+    assert len(updates) == 4
+
+    # Verify the final update has values from the last valid packet
+    # Note: Due to how the parser works, all updates reference the
+    # same mutable state, so we can only reliably verify the final
+    # state matches the last packet sent
+    temp_key = DeviceKey(key="temperature", device_id=None)
+    humidity_key = DeviceKey(key="humidity", device_id=None)
+    co2_key = DeviceKey(key="carbon_dioxide", device_id=None)
+
+    # The last update should have values from packet 4
+    assert updates[-1].entity_values[temp_key].native_value == 23.2
+    assert updates[-1].entity_values[humidity_key].native_value == 50.0
+    assert updates[-1].entity_values[co2_key].native_value == 1092
 
 
 @pytest.mark.asyncio
