@@ -1887,6 +1887,7 @@ async def test_notify_iam_t1_c() -> None:
         uuid: UUID, callback: Callable[[UUID, bytes], None]
     ) -> None:
         callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x00\x10")
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe8\x01\xf4\x04K\x03")
         callback(uuid, b"U\xaa\x01\x10\x00\x00\xfe\x01\xd6\x02\xd9\x03\xf1\x01\x00\xb5")
 
     mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
