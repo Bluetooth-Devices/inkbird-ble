@@ -300,6 +300,74 @@ MANUFACTURER_DATA_ID_EXCLUDES = {2}
 
 MIN_POLL_INTERVAL = 180.0
 
+# Sensor reading validation constants
+# These define reasonable physical bounds for sensor readings.
+# Readings outside these bounds are considered invalid/corrupt and discarded.
+# This helps protect historical data from obviously wrong values
+# (e.g., humidity > 6000% with temperature == 0°C on ITH-11-B devices).
+#
+# Temperature bounds (in Celsius):
+# - Consumer temperature sensors range from environmental (-40°C to +85°C)
+#   to cooking probes (up to 300°C or higher for BBQ/oven use)
+# - Using wide bounds to accommodate all INKBIRD device types
+MIN_VALID_TEMPERATURE_C = -50.0
+MAX_VALID_TEMPERATURE_C = 350.0  # Covers BBQ/cooking probe temperatures
+
+# Humidity bounds (in percentage):
+# - Physical range is 0-100%, but some sensors may report slightly over
+#   due to calibration or measurement tolerances
+# - Values in the thousands are clearly corrupt data
+MIN_VALID_HUMIDITY_PCT = 0.0
+MAX_VALID_HUMIDITY_PCT = 110.0  # Allow slight overshoot for sensor tolerance
+
+
+def is_valid_temperature(temp_celsius: float) -> bool:
+    """
+    Check if a temperature reading is within valid physical bounds.
+
+    Args:
+        temp_celsius: Temperature value in Celsius.
+
+    Returns:
+        True if the temperature is within valid bounds, False otherwise.
+    """
+    return MIN_VALID_TEMPERATURE_C <= temp_celsius <= MAX_VALID_TEMPERATURE_C
+
+
+def is_valid_humidity(humidity_pct: float) -> bool:
+    """
+    Check if a humidity reading is within valid physical bounds.
+
+    Args:
+        humidity_pct: Humidity value in percentage.
+
+    Returns:
+        True if the humidity is within valid bounds, False otherwise.
+    """
+    return MIN_VALID_HUMIDITY_PCT <= humidity_pct <= MAX_VALID_HUMIDITY_PCT
+
+
+def is_valid_sensor_reading(
+    temp_celsius: float | None = None,
+    humidity_pct: float | None = None,
+) -> bool:
+    """
+    Validate sensor readings against physical bounds.
+
+    This is an extensible validation function that can check multiple sensor
+    values. Additional sensor types (e.g., CO2, pressure) can be added as needed.
+
+    Args:
+        temp_celsius: Temperature value in Celsius (optional).
+        humidity_pct: Humidity value in percentage (optional).
+
+    Returns:
+        True if all provided readings are valid, False if any are invalid.
+    """
+    if temp_celsius is not None and not is_valid_temperature(temp_celsius):
+        return False
+    return humidity_pct is None or is_valid_humidity(humidity_pct)
+
 
 async def async_connect_action(
     ble_device: BLEDevice,
@@ -666,14 +734,43 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _update_eighteen_byte_model_from_raw(
         self, temp_hum_bytes: bytes, bat: int
     ) -> None:
-        """Update the sensor values for a 18 byte model."""
+        """Update the sensor values for a 18 byte model.
+
+        Invalid readings (outside physical bounds) are discarded to protect
+        historical data. This addresses issues like ITH-11-B devices reporting
+        humidity > 6000% with temperature == 0°C.
+        See: https://github.com/Bluetooth-Devices/inkbird-ble/issues/141
+        """
         if TYPE_CHECKING:
             assert self._device_type is not None
         temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
-        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
+        temp_celsius = temp / 10
+        humidity_pct = hum / 10 if hum != 0 else None
+
+        # Validate readings before updating sensors
+        if not is_valid_sensor_reading(
+            temp_celsius=temp_celsius, humidity_pct=humidity_pct
+        ):
+            _LOGGER.debug(
+                "Discarding invalid reading from %s: temp=%.1f°C, humidity=%s%%, "
+                "raw bytes=%s (valid ranges: temp %.1f-%.1f°C, humidity %.1f-%.1f%%)",
+                self._device_type,
+                temp_celsius,
+                humidity_pct if humidity_pct is not None else "N/A",
+                temp_hum_bytes.hex(),
+                MIN_VALID_TEMPERATURE_C,
+                MAX_VALID_TEMPERATURE_C,
+                MIN_VALID_HUMIDITY_PCT,
+                MAX_VALID_HUMIDITY_PCT,
+            )
+            return
+
+        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp_celsius)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
-        if hum != 0:
-            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
+        if humidity_pct is not None:
+            self.update_predefined_sensor(
+                SensorLibrary.HUMIDITY__PERCENTAGE, humidity_pct
+            )
 
     def _update_seventeen_byte_model(self, data: bytes, msg_length: int) -> None:
         """Update the sensor values for 17-byte sensor models (IAM-T2)."""

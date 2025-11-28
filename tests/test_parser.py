@@ -20,7 +20,13 @@ from sensor_state_data import (
     Units,
 )
 
-from inkbird_ble.parser import INKBIRDBluetoothDeviceData, Model
+from inkbird_ble.parser import (
+    INKBIRDBluetoothDeviceData,
+    Model,
+    is_valid_humidity,
+    is_valid_sensor_reading,
+    is_valid_temperature,
+)
 
 from . import async_fire_time_changed
 
@@ -3011,3 +3017,224 @@ def test_iam_t2_detection_without_name() -> None:
         ].native_value
         == 595
     )
+
+
+def test_ith_11_b_invalid_reading_high_humidity_discarded():
+    """Test that ITH-11-B readings with extremely high humidity are discarded.
+
+    This test simulates the bug reported in issue #141 where ITH-11-B devices
+    occasionally report humidity > 6000% with temperature == 0°C.
+    Such readings should be discarded to protect historical data.
+
+    See: https://github.com/Bluetooth-Devices/inkbird-ble/issues/141
+    """
+    parser = INKBIRDBluetoothDeviceData()
+
+    # First, send a valid reading so we have established baseline values
+    valid_service_info = make_bluetooth_service_info(
+        name="ITH-11-B",
+        manufacturer_data={
+            # temp=25.0°C (0x00fa = 250), hum=50.0% (0x01f4 = 500), battery=100
+            9289: b"\x08\x12\x00^\xfa\x00\xf4\x01d\x00d\x08\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-34,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(valid_service_info)
+    assert parser.device_type is Model.ITH_11_B
+
+    # Verify the valid reading was accepted
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 25.0
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 50.0
+    )
+
+    # Now send an invalid reading: temp=0°C (0x0000), humidity=6500% (0xfd20 = 64800)
+    # This simulates the corrupt data pattern reported in issue #141
+    invalid_service_info = make_bluetooth_service_info(
+        name="ITH-11-B",
+        manufacturer_data={
+            # temp=0°C (0x0000 = 0), hum=6480.0% (0xfd20 = 64800), battery=100
+            9289: b"\x08\x12\x00^\x00\x00\x20\xfd\x64\x00d\x08\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-34,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(invalid_service_info)
+
+    # The invalid reading should be discarded.
+    # The result should still contain the previous valid values.
+    # Note: entity_values will contain whatever was last set on the parser.
+    # Since update returns the current state and we discarded the invalid update,
+    # we verify no new temperature/humidity was set from the invalid reading.
+    temp_value = result.entity_values.get(DeviceKey(key="temperature", device_id=None))
+    humidity_value = result.entity_values.get(DeviceKey(key="humidity", device_id=None))
+
+    # The values should remain from the previous valid reading (25.0°C, 50.0%)
+    # not the invalid ones (0°C, 6480%)
+    if temp_value is not None:
+        assert temp_value.native_value == 25.0
+    if humidity_value is not None:
+        assert humidity_value.native_value == 50.0
+
+
+def test_ith_11_b_invalid_reading_temperature_too_low_discarded():
+    """Test that readings with extremely low temperature are discarded."""
+    parser = INKBIRDBluetoothDeviceData()
+
+    # Send an invalid reading with temperature below valid range (-100°C)
+    # temp=-100.0°C (0xfc18 signed = -1000), hum=50.0% (0x01f4 = 500)
+    invalid_service_info = make_bluetooth_service_info(
+        name="ITH-11-B",
+        manufacturer_data={
+            9289: b"\x08\x12\x00^\x18\xfc\xf4\x01d\x00d\x08\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-34,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(invalid_service_info)
+    assert parser.device_type is Model.ITH_11_B
+
+    # The invalid reading should be discarded - no temperature/humidity values
+    temp_value = result.entity_values.get(DeviceKey(key="temperature", device_id=None))
+    humidity_value = result.entity_values.get(DeviceKey(key="humidity", device_id=None))
+
+    # Values should not be set from this invalid reading
+    assert temp_value is None
+    assert humidity_value is None
+
+
+def test_ith_11_b_valid_edge_case_humidity_slightly_over_100():
+    """Test that readings with humidity slightly over 100% are accepted.
+
+    Some sensors may report humidity slightly above 100% due to calibration
+    or measurement tolerances. These should be accepted as valid readings.
+    """
+    parser = INKBIRDBluetoothDeviceData()
+
+    # Send a reading with humidity=105.0% (within tolerance range up to 110%)
+    # temp=25.0°C (0x00fa = 250), hum=105.0% (0x041a = 1050)
+    service_info = make_bluetooth_service_info(
+        name="ITH-11-B",
+        manufacturer_data={
+            9289: b"\x08\x12\x00^\xfa\x00\x1a\x04d\x00d\x08\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-34,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type is Model.ITH_11_B
+
+    # This should be accepted as a valid reading
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 25.0
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 105.0
+    )
+
+
+def test_ith_11_b_invalid_humidity_over_tolerance():
+    """Test that readings with humidity clearly over tolerance are discarded.
+
+    Humidity values above 110% are clearly invalid and should be discarded.
+    """
+    parser = INKBIRDBluetoothDeviceData()
+
+    # First, send a valid reading to establish baseline
+    valid_service_info = make_bluetooth_service_info(
+        name="ITH-11-B",
+        manufacturer_data={
+            9289: b"\x08\x12\x00^\xfa\x00\xf4\x01d\x00d\x08\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-34,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(valid_service_info)
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 25.0
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 50.0
+    )
+
+    # Now send invalid reading with humidity=150.0% (over the 110% tolerance)
+    # temp=25.0°C (0x00fa = 250), hum=150.0% (0x05dc = 1500)
+    invalid_service_info = make_bluetooth_service_info(
+        name="ITH-11-B",
+        manufacturer_data={
+            9289: b"\x08\x12\x00^\xfa\x00\xdc\x05d\x00d\x08\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-34,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(invalid_service_info)
+
+    # The invalid reading should be discarded, previous values retained
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 25.0
+    )
+    assert (
+        result.entity_values[DeviceKey(key="humidity", device_id=None)].native_value
+        == 50.0
+    )
+
+
+def test_validation_helper_functions():
+    """Test the sensor reading validation helper functions."""
+    # Test temperature validation
+    assert is_valid_temperature(25.0) is True
+    assert is_valid_temperature(-40.0) is True
+    assert is_valid_temperature(0.0) is True
+    assert is_valid_temperature(-50.0) is True  # At boundary
+    assert is_valid_temperature(350.0) is True  # At boundary (cooking temps)
+    assert is_valid_temperature(300.0) is True  # BBQ probe temperature
+    assert is_valid_temperature(-51.0) is False  # Just below boundary
+    assert is_valid_temperature(351.0) is False  # Just above boundary
+    assert is_valid_temperature(-100.0) is False  # Way below
+    assert is_valid_temperature(1000.0) is False  # Way above
+
+    # Test humidity validation
+    assert is_valid_humidity(50.0) is True
+    assert is_valid_humidity(0.0) is True  # At boundary
+    assert is_valid_humidity(100.0) is True
+    assert is_valid_humidity(105.0) is True  # Within tolerance
+    assert is_valid_humidity(110.0) is True  # At boundary
+    assert is_valid_humidity(110.1) is False  # Just above boundary
+    assert is_valid_humidity(-0.1) is False  # Just below boundary
+    assert is_valid_humidity(6500.0) is False  # Clearly invalid (issue #141)
+
+    # Test combined validation
+    assert is_valid_sensor_reading(temp_celsius=25.0, humidity_pct=50.0) is True
+    assert is_valid_sensor_reading(temp_celsius=25.0) is True  # Only temp
+    assert is_valid_sensor_reading(humidity_pct=50.0) is True  # Only humidity
+    assert is_valid_sensor_reading() is True  # No values (vacuously true)
+    assert is_valid_sensor_reading(temp_celsius=0.0, humidity_pct=6500.0) is False
+    assert is_valid_sensor_reading(temp_celsius=-100.0, humidity_pct=50.0) is False
