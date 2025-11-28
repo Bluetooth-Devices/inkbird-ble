@@ -366,7 +366,7 @@ def is_valid_sensor_reading(
     """
     if temp_celsius is not None and not is_valid_temperature(temp_celsius):
         return False
-    return not (humidity_pct is not None and not is_valid_humidity(humidity_pct))
+    return humidity_pct is None or is_valid_humidity(humidity_pct)
 
 
 async def async_connect_action(
