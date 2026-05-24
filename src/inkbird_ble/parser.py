@@ -106,7 +106,11 @@ MODEL_INFO = {
         model_type=ModelType.BBQ,
         local_name=None,
         message_length=14,
-        unpacker=struct.Struct("<HH").unpack,
+        # Signed like the other BBQ models: an unsigned ``<HH`` turns a
+        # legitimate sub-zero reading (e.g. -5.0C -> 0xFFCE) into ~6548C, the
+        # same #155 wraparound family. Signed parsing keeps the 0xFFFF "no
+        # probe" sentinel as -1, which BBQ_PROBE_NOT_CONNECTED still drops.
+        unpacker=struct.Struct("<hh").unpack,
         service_uuid=None,
         characteristic_uuid=None,
         notify_uuid=None,
@@ -342,10 +346,11 @@ def try_parse_model(value: str | Model | None) -> Model | None:
     return None
 
 
-# A BBQ probe that is not plugged in reports 0xFFFF. Depending on the model's
-# struct unpacker this surfaces as 65535 (unsigned, e.g. iBBQ-2) or -1 (signed,
-# e.g. iBBQ-1/4/6); both mean "no probe attached" and must be dropped rather
-# than reported as a bogus 6553.5°C reading.
+# A BBQ probe that is not plugged in reports 0xFFFF. All BBQ models now use
+# signed unpackers, so this surfaces as -1; the unsigned 65535 form is kept
+# defensively in case a future model is added with an unsigned unpacker. Either
+# way it means "no probe attached" and must be dropped rather than reported as
+# a bogus 6553.5°C reading.
 BBQ_PROBE_NOT_CONNECTED = frozenset((0xFFFF, -1))
 
 

@@ -767,6 +767,40 @@ def test_ibbq_4_sub_zero_probe():
     )
 
 
+def test_ibbq_2_sub_zero_probe():
+    """An iBBQ-2 probe reading below 0°C survives, not wrapped to ~6548°C.
+
+    Probe 1 raw value is -50 (0xFFCE, little-endian ``\\xce\\xff``), i.e. -5.0°C.
+    An unsigned ``<HH`` unpacker would read 0xFFCE as 65486 -> 6548.6°C. It is
+    not the 0xFFFF disconnect sentinel, so it must survive as -5.0. Probe 2 is
+    a normal 25.0°C reading.
+    """
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="xBBQ",
+        manufacturer_data={1: b"\x00\x00,\x11\x00\x00m\xd3\xce\xff\xfa\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBBQ_2
+    assert (
+        result.entity_values[
+            DeviceKey(key="temperature_probe_1", device_id=None)
+        ].native_value
+        == -5.0
+    )
+    assert (
+        result.entity_values[
+            DeviceKey(key="temperature_probe_2", device_id=None)
+        ].native_value
+        == 25.0
+    )
+
+
 def test_ibt_2x():
     parser = INKBIRDBluetoothDeviceData()
     service_info = make_bluetooth_service_info(
