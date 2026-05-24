@@ -3230,7 +3230,7 @@ def test_poll_needed_recency_uses_service_info_time() -> None:
         service_data=fresh.service_data,
         source=fresh.source,
         device=fresh.device,
-        time=monotonic_time_coarse() - 200.0,
+        time=monotonic_time_coarse() - 400.0,
         advertisement=None,
         connectable=True,
         tx_power=0,
