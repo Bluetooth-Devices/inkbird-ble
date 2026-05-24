@@ -579,10 +579,16 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """
         This is called every time we get a service_info for a device or if
         called manually.
+
+        The recency check uses ``service_info.time`` rather than
+        ``self._last_full_update`` so a healthy device whose readings
+        have not changed (and whose repeat advertisements are therefore
+        deduplicated before the parser runs) does not get marked as
+        needing a connectable poll.
         """
         poll_needed = self._supports_polling and (
             not self._last_full_update
-            or (monotonic_time_coarse() - self._last_full_update) > MIN_POLL_INTERVAL
+            or (monotonic_time_coarse() - service_info.time) > MIN_POLL_INTERVAL
         )
         _LOGGER.debug("Poll needed for INKBIRD device %s: %s", self.name, poll_needed)
         return poll_needed
