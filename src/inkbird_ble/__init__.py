@@ -22,7 +22,6 @@ __all__ = [
     "INKBIRDBluetoothDeviceData",
     "SensorDescription",
     "SensorDeviceInfo",
-    "SensorDeviceInfo",
     "SensorUpdate",
     "SensorValue",
     "Units",

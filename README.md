@@ -38,6 +38,32 @@ Install this via pip (or your favourite package manager):
 
 `pip install inkbird-ble`
 
+## Usage
+
+`inkbird-ble` parses the BLE advertisements (and, for some models, GATT
+reads/notifications) emitted by INKBIRD devices into structured sensor values.
+
+Most sensors broadcast their readings, so passive parsing needs no connection:
+
+```python
+from inkbird_ble import INKBIRDBluetoothDeviceData
+
+# `service_info` is a habluetooth `BluetoothServiceInfoBleak`
+data = INKBIRDBluetoothDeviceData()
+if data.supported(service_info):
+    update = data.update(service_info)
+    for device_key, value in update.entity_values.items():
+        print(device_key.key, value.native_value)
+    # temperature 20.44
+    # humidity 48.07
+    # battery 86
+```
+
+A few models must be polled (`async_poll`) or subscribed to (`async_start`)
+over a connection. See the [usage documentation](https://inkbird-ble.readthedocs.io/en/latest/usage.html)
+for the active device flow and for building a `service_info` outside Home
+Assistant.
+
 ## Contributors ✨
 
 Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
