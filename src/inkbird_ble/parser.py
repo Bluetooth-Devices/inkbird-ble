@@ -555,10 +555,13 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         changed_manufacturer_data = self.changed_manufacturer_data(
             service_info, excludes
         )
-        if not changed_manufacturer_data or len(changed_manufacturer_data) > 1:
-            # If len(changed_manufacturer_data) > 1 it means we switched
-            # ble adapters so we do not know which data is the latest
-            # and we need to wait for the next update.
+        if not changed_manufacturer_data:
+            return
+        if service_info.raw is None and len(changed_manufacturer_data) > 1:
+            # Without raw advertisement bytes, multiple changed entries are
+            # ambiguous (missed packets / new source) so we wait for the
+            # next update. When raw is available, changed_manufacturer_data
+            # reflects only the current packet, so trust the last entry.
             return
         last_id = list(changed_manufacturer_data)[-1]
         data = (

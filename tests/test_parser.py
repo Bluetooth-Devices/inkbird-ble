@@ -581,6 +581,37 @@ def test_unknown_tps():
     )
 
 
+def test_tps_multi_entry_dict_with_raw() -> None:
+    # Two FF AD segments in a single raw advertisement are legal per the
+    # BLE spec. The last one is the most recent reading; previously the
+    # parser bailed on len>1, leaving battery and temperature unset.
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="tps",
+        manufacturer_data={
+            2200: b"\x00\x00\x00\x07\xbc\x00\x08",
+            2240: b"\x00\x00\x00&q\x00\x08",
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:22:08:15:00:BB",
+        rssi=-59,
+        service_data={},
+        source="98:3D:AE:4F:E9:FA",
+        raw=b"\x02\x01\x06\x03\x02\xf0\xff"
+        b"\x0a\xff\x98\x08\x00\x00\x00\x07\xbc\x00\x08"
+        b"\x0a\xff\xc0\x08\x00\x00\x00&q\x00\x08",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBS_TH2
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 22.4
+    )
+    assert (
+        result.entity_values[DeviceKey(key="battery", device_id=None)].native_value == 0
+    )
+
+
 def test_ibbq_4():
     parser = INKBIRDBluetoothDeviceData()
     service_info = make_bluetooth_service_info(
