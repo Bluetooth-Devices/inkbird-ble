@@ -612,6 +612,43 @@ def test_tps_multi_entry_dict_with_raw() -> None:
     )
 
 
+def test_tps_multi_entry_dict_without_raw_bails() -> None:
+    # Without raw, multiple newly changed entries are ambiguous (could be
+    # missed packets, a fresh source, etc.) so the parser waits for the
+    # next update rather than guessing.
+    parser = INKBIRDBluetoothDeviceData()
+    first = make_bluetooth_service_info(
+        name="tps",
+        manufacturer_data={2200: b"\x00\x00\x00\x07\xbc\x00\x08"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:22:08:15:00:BB",
+        rssi=-59,
+        service_data={},
+        source="98:3D:AE:4F:E9:FA",
+    )
+    parser.update(first)
+    second = make_bluetooth_service_info(
+        name="tps",
+        manufacturer_data={
+            2200: b"\x00\x00\x00\x07\xbc\x00\x08",
+            2210: b"\x00\x00\x00\xdf\xb9\x00\x08",
+            2240: b"\x00\x00\x00&q\x00\x08",
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:22:08:15:00:BB",
+        rssi=-59,
+        service_data={},
+        source="98:3D:AE:4F:E9:FA",
+    )
+    result = parser.update(second)
+    # Temperature stays at the value from the first parse; no new reading
+    # was committed because the diff was ambiguous.
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == 22.0
+    )
+
+
 def test_ibbq_4():
     parser = INKBIRDBluetoothDeviceData()
     service_info = make_bluetooth_service_info(
