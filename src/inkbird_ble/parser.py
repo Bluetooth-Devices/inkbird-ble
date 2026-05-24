@@ -688,8 +688,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # Parse status byte
         status = data[9]
 
-        # Parse sensor values (all big-endian)
-        temperature_raw = (data[10] << 8) | data[11]
+        # Parse sensor values (all big-endian). Temperature is signed: sub-zero
+        # readings arrive as two's-complement (e.g. -5.0C -> 0xFFCE). Parsing it
+        # unsigned reports ~6553C for any negative temperature (see #155 family).
+        temperature_raw = int.from_bytes(data[10:12], "big", signed=True)
         humidity = ((data[12] << 8) | data[13]) / 10.0
         co2 = (data[14] << 8) | data[15]
 
