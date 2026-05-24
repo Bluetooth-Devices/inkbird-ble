@@ -350,8 +350,14 @@ BBQ_PROBE_NOT_CONNECTED = frozenset((0xFFFF, -1))
 
 
 def convert_temperature(temp: float) -> float:
-    """Temperature converter."""
-    return temp / 10.0 if temp > 0 else 0
+    """Temperature converter.
+
+    Signed BBQ probes can legitimately read below 0°C (e.g. an ambient probe
+    in a freezer or a cold smoker). Disconnected probes are dropped upstream
+    via ``BBQ_PROBE_NOT_CONNECTED``, so no clamping is needed here — clamping
+    sub-zero readings to 0 would corrupt valid data.
+    """
+    return temp / 10.0
 
 
 def is_bbq(lower_name: str) -> bool:
