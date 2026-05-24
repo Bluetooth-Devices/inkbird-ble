@@ -1010,22 +1010,22 @@ files = [
 
 [[package]]
 name = "myst-parser"
-version = "5.0.0"
+version = "5.1.0"
 description = "An extended [CommonMark](https://spec.commonmark.org/) compliant parser,"
 optional = true
 python-versions = ">=3.11"
 groups = ["main"]
 markers = "extra == \"docs\""
 files = [
-    {file = "myst_parser-5.0.0-py3-none-any.whl", hash = "sha256:ab31e516024918296e169139072b81592336f2fef55b8986aa31c9f04b5f7211"},
-    {file = "myst_parser-5.0.0.tar.gz", hash = "sha256:f6f231452c56e8baa662cc352c548158f6a16fcbd6e3800fc594978002b94f3a"},
+    {file = "myst_parser-5.1.0-py3-none-any.whl", hash = "sha256:9c91c52b3cdb4d94a6506e4fab4e2f296c7623a0da0dcbe6de1565c3dad67a8a"},
+    {file = "myst_parser-5.1.0.tar.gz", hash = "sha256:ab69322dc6719dcc7f296479dbb70181b66df6ed315064f92dbc85c0e1bf2f02"},
 ]
 
 [package.dependencies]
 docutils = ">=0.20,<0.23"
 jinja2 = "*"
-markdown-it-py = ">=4.0,<5.0"
-mdit-py-plugins = ">=0.5,<1.0"
+markdown-it-py = ">=4.2,<5.0"
+mdit-py-plugins = ">=0.6.1,<1.0"
 pyyaml = "*"
 sphinx = ">=8,<10"
 
@@ -1033,7 +1033,7 @@ sphinx = ">=8,<10"
 code-style = ["pre-commit (>=4.0,<5.0)"]
 linkify = ["linkify-it-py (>=2.0,<3.0)"]
 rtd = ["ipython", "sphinx (>=8)", "sphinx-autodoc2 (>=0.5.0,<0.6.0)", "sphinx-book-theme (>=1.1,<2.0)", "sphinx-copybutton", "sphinx-design", "sphinx-pyscript", "sphinx-tippy (>=0.4.3)", "sphinx-togglebutton", "sphinxext-opengraph (>=0.13.0,<0.14.0)", "sphinxext-rediraffe (>=0.3.0,<0.4.0)"]
-testing = ["beautifulsoup4", "coverage[toml]", "defusedxml", "pygments (<2.20)", "pytest (>=9,<10)", "pytest-cov", "pytest-param-files (>=0.6.0,<0.7.0)", "pytest-regressions", "sphinx-pytest (>=0.3.0,<0.4.0)"]
+testing = ["beautifulsoup4", "coverage[toml]", "defusedxml", "pygments (<2.21)", "pytest (>=9,<10)", "pytest-cov", "pytest-param-files (>=0.6.0,<0.7.0)", "pytest-regressions", "sphinx-pytest (>=0.3.0,<0.4.0)"]
 testing-docutils = ["pygments", "pytest (>=9,<10)", "pytest-param-files (>=0.6.0,<0.7.0)"]
 
 [[package]]
@@ -1960,4 +1960,4 @@ docs = ["Sphinx", "myst-parser", "sphinx-rtd-theme"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.15"
-content-hash = "61e4c1cf3ea93f3c0f8e638bc7f90b0a846fe032f616260d3cc7afcc8296af13"
+content-hash = "21f4e4074a99417a946feb111391f45a6bc62428865fc5720da14980c0e86221"
