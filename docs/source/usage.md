@@ -51,7 +51,7 @@ for device_key, sensor_value in update.entity_values.items():
 
 A `BluetoothServiceInfoBleak` exposes `manufacturer_data` as a
 `dict[int, bytes]`. The integer key is the **Bluetooth SIG company identifier**
-advertised by the device — it is *not* a temperature or a value you need to
+advertised by the device — it is _not_ a temperature or a value you need to
 decode yourself. You never index into `manufacturer_data` manually; pass the
 whole `service_info` to `update()` and the parser selects the right model and
 payload for you.
