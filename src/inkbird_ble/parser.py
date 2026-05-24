@@ -298,7 +298,7 @@ NOTIFY_MODELS = {
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
 
-MIN_POLL_INTERVAL = 180.0
+MIN_POLL_INTERVAL = 330.0
 
 
 async def async_connect_action(
