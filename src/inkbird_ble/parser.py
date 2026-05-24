@@ -342,6 +342,13 @@ def try_parse_model(value: str | Model | None) -> Model | None:
     return None
 
 
+# A BBQ probe that is not plugged in reports 0xFFFF. Depending on the model's
+# struct unpacker this surfaces as 65535 (unsigned, e.g. iBBQ-2) or -1 (signed,
+# e.g. iBBQ-1/4/6); both mean "no probe attached" and must be dropped rather
+# than reported as a bogus 6553.5°C reading.
+BBQ_PROBE_NOT_CONNECTED = frozenset((0xFFFF, -1))
+
+
 def convert_temperature(temp: float) -> float:
     """Temperature converter."""
     return temp / 10.0 if temp > 0 else 0
@@ -633,6 +640,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             assert self._device_type is not None
         xvalue = data[10:]
         for idx, temp in enumerate(MODEL_INFO[self._device_type].unpacker(xvalue)):
+            if temp in BBQ_PROBE_NOT_CONNECTED:
+                # Probe not plugged in; skip it instead of reporting 6553.5°C.
+                continue
             num = idx + 1
             self.update_predefined_sensor(
                 SensorLibrary.TEMPERATURE__CELSIUS,

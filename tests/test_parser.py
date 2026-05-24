@@ -794,7 +794,7 @@ def test_ibt_2x():
 
 
 def test_xbbq_2a_adv1():
-    """Test xBBQ2 accepts 1 updates."""
+    """Test xBBQ2 with a disconnected probe (0xFFFF) skips that probe."""
     parser = INKBIRDBluetoothDeviceData()
     service_info = make_bluetooth_service_info(
         name="xBBQ",
@@ -829,11 +829,6 @@ def test_xbbq_2a_adv1():
                 device_class=SensorDeviceClass.SIGNAL_STRENGTH,
                 native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
             ),
-            DeviceKey(key="temperature_probe_2", device_id=None): SensorDescription(
-                device_key=DeviceKey(key="temperature_probe_2", device_id=None),
-                device_class=SensorDeviceClass.TEMPERATURE,
-                native_unit_of_measurement=Units.TEMP_CELSIUS,
-            ),
         },
         entity_values={
             DeviceKey(key="temperature_probe_1", device_id=None): SensorValue(
@@ -846,10 +841,49 @@ def test_xbbq_2a_adv1():
                 name="Signal Strength",
                 native_value=-60,
             ),
-            DeviceKey(key="temperature_probe_2", device_id=None): SensorValue(
-                device_key=DeviceKey(key="temperature_probe_2", device_id=None),
-                name="Temperature Probe 2",
-                native_value=6553.5,
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+    )
+
+
+def test_ibt_2x_no_probes_connected():
+    """Both probes unplugged (0xFFFF) emit no temperature (issue #155)."""
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="xBBQ",
+        manufacturer_data={1: b"\x00\x00,\x11\x00\x00m\xd3\xff\xff\xff\xff"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IBBQ_2
+    assert result == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="xBBQ EEFF",
+                model="xBBQ-2",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-60,
             ),
         },
         binary_entity_descriptions={},
