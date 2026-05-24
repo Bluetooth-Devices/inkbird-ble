@@ -3008,6 +3008,53 @@ def test_iam_t2_celsius_mode() -> None:
     )
 
 
+def test_iam_t2_sub_zero_celsius() -> None:
+    """Sub-zero IAM-T2 reading must stay negative, not wrap to ~6553°C (#188)."""
+    parser = INKBIRDBluetoothDeviceData()
+    # status d4 = Celsius mode; temp bytes ffce = -50 tenths = -5.0°C.
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed4ffce01ee025391")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-65,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert (
+        result.entity_values[DeviceKey(key="temperature", device_id=None)].native_value
+        == -5.0
+    )
+
+
+def test_iam_t2_sub_zero_fahrenheit() -> None:
+    """Sub-zero Fahrenheit IAM-T2 reading must convert to negative Celsius (#188)."""
+    parser = INKBIRDBluetoothDeviceData()
+    # status d6 = Fahrenheit mode; temp bytes ffd8 = -40 tenths = -4.0°F = -20.0°C.
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed6ffd801ee025391")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-65,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    assert (
+        round(
+            result.entity_values[
+                DeviceKey(key="temperature", device_id=None)
+            ].native_value,
+            1,
+        )
+        == -20.0
+    )
+
+
 def test_iam_t2_fahrenheit_mode_82f() -> None:
     """Test IAM-T2 in Fahrenheit mode with 82°F data."""
     parser = INKBIRDBluetoothDeviceData()
