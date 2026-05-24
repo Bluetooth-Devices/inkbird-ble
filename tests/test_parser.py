@@ -3079,3 +3079,44 @@ def test_iam_t2_detection_without_name() -> None:
         ].native_value
         == 595
     )
+
+
+def test_poll_needed_recency_uses_service_info_time() -> None:
+    """A stale service_info forces a poll even if the parser updated recently."""
+    parser = INKBIRDBluetoothDeviceData(Model.IBS_TH)
+    service_info = make_bluetooth_service_info(
+        name="sps",
+        manufacturer_data={2096: b"\x0f\x12\x00Z\xc7W\x06"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.poll_needed(service_info, None) is False
+
+    fresh = make_bluetooth_service_info(
+        name="sps",
+        manufacturer_data={2096: b"\x0f\x12\x00Z\xc7W\x06"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    stale = BluetoothServiceInfoBleak(
+        name=fresh.name,
+        manufacturer_data=fresh.manufacturer_data,
+        service_uuids=fresh.service_uuids,
+        address=fresh.address,
+        rssi=fresh.rssi,
+        service_data=fresh.service_data,
+        source=fresh.source,
+        device=fresh.device,
+        time=monotonic_time_coarse() - 200.0,
+        advertisement=None,
+        connectable=True,
+        tx_power=0,
+    )
+    assert parser.poll_needed(stale, None) is True
