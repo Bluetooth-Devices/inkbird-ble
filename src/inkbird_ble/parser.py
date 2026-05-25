@@ -78,6 +78,13 @@ class ModelInfo:
     # start streaming (each entry is ``(characteristic_uuid, payload)``). Most
     # notify models stream unprompted, so this defaults to empty.
     notify_init_writes: tuple[tuple[UUID, bytes], ...] = ()
+    # Whether the device may be refreshed via a connectable GATT poll. Probe
+    # thermometers like the IBS-P02B broadcast their full reading in the
+    # advertisement and become unstable under active connections — the firmware
+    # stops responding until the batteries are pulled — so polling is disabled
+    # for them. The advertisement already carries every field a poll would read.
+    # See https://github.com/Bluetooth-Devices/inkbird-ble/issues/116
+    supports_polling: bool = True
 
 
 INKBIRD_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
@@ -238,6 +245,9 @@ MODEL_INFO = {
         notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
+        # Advertisement-only: connecting to poll this probe wedges its firmware
+        # until a battery reset (#116). Every field is already in the broadcast.
+        supports_polling=False,
     ),
     Model.ITH_11_B: ModelInfo(
         name="ITH-11-B",
@@ -757,7 +767,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     @property
     def _supports_polling(self) -> bool:
         """Return True if the device supports polling."""
-        return self._device_type is not None and self._device_type in SENSOR_MODELS
+        return (
+            self._device_type is not None
+            and self._device_type in SENSOR_MODELS
+            and MODEL_INFO[self._device_type].supports_polling
+        )
 
     async def _async_connect_and_read(self, ble_device: BLEDevice) -> bytes:
         """Connect to the device and read the data characteristic."""

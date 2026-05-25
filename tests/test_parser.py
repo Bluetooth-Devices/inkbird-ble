@@ -2990,6 +2990,47 @@ def test_IBS_P02B_multiple_updates():
     )
 
 
+def test_IBS_P02B_never_polls_on_first_sighting() -> None:
+    """IBS-P02B must never request a connectable poll.
+
+    The IBS-P02B broadcasts its full reading (temperature + battery) in the
+    advertisement, so a connectable poll adds nothing. Worse, the firmware
+    becomes unstable under active connections and stops responding until the
+    batteries are pulled (see #116). ``poll_needed`` returns True on first
+    sighting for any polling sensor, so guard that path explicitly.
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.IBS_P02B)
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={9289: bytes.fromhex("11180065d00000005a00800000000000")},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    # No advertisement parsed yet (``_last_full_update == 0``): a polling
+    # sensor would ask to connect here. The IBS-P02B must not.
+    assert parser.poll_needed(service_info, None) is False
+
+
+def test_IBS_P02B_never_polls_after_updates() -> None:
+    """IBS-P02B never polls, even after advertisements have been parsed."""
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="IBS-P02B",
+        manufacturer_data={9289: bytes.fromhex("11180065d00000005a00800000000000")},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.device_type == Model.IBS_P02B
+    assert parser.poll_needed(service_info, None) is False
+
+
 def test_iam_t2_detection() -> None:
     """Test IAM-T2 device detection from advertisement data."""
     # Using real data from issue #96
