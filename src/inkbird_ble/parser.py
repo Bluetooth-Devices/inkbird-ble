@@ -376,6 +376,13 @@ def try_parse_model(value: str | Model | None) -> Model | None:
 # a bogus 6553.5°C reading.
 BBQ_PROBE_NOT_CONNECTED = frozenset((0xFFFF, -1))
 
+# Inkbird hygrometers occasionally emit a corrupt advertisement where the
+# unsigned humidity field is garbage (e.g. 0xFFFF -> 6553.5%) and the
+# temperature reads 0. Relative humidity cannot exceed 100%, so a reading
+# above this is treated as a corrupt packet and dropped rather than polluting
+# the sensor history. See https://github.com/Bluetooth-Devices/inkbird-ble/issues/141
+MAX_PLAUSIBLE_HUMIDITY = 100.0
+
 
 def convert_temperature(temp: float) -> float:
     """Temperature converter.
@@ -730,10 +737,20 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if TYPE_CHECKING:
             assert self._device_type is not None
         temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
+        humidity = hum / 10
+        if humidity > MAX_PLAUSIBLE_HUMIDITY:
+            # Corrupt advertisement (humidity field garbage, temperature 0).
+            # Drop the whole reading so it does not spoil the history. See #141.
+            _LOGGER.debug(
+                "Ignoring corrupt reading from %s: humidity %.1f%% exceeds 100%%",
+                self.name,
+                humidity,
+            )
+            return
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
         if hum != 0:
-            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 10)
+            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
 
     def _update_seventeen_byte_model(self, data: bytes, msg_length: int) -> None:
         """Update the sensor values for 17-byte sensor models (IAM-T2)."""

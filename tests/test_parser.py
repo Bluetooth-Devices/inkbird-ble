@@ -1548,6 +1548,56 @@ def test_ith_11_b():
     )
 
 
+def test_ith_11_b_corrupt_humidity_dropped():
+    """A corrupt reading (humidity > 100%, temperature 0) is dropped (#141)."""
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        # data[6:10] = 00 00 ff ff -> temp 0.0C, humidity 6553.5% (0xFFFF/10)
+        name="ITH-11-B",
+        manufacturer_data={
+            9289: b"\x08\x12\x00^\x00\x00\xff\xffd\x00d\x08\x00\x00\x00\x00"
+        },
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-34,
+        service_data={},
+        source="local",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type is Model.ITH_11_B
+    # The corrupt packet emits no temperature/humidity/battery values; only the
+    # always-present signal strength remains.
+    assert result == SensorUpdate(
+        title=None,
+        devices={
+            None: SensorDeviceInfo(
+                name="ITH-11-B EEFF",
+                model="ITH-11-B",
+                manufacturer="INKBIRD",
+                sw_version=None,
+                hw_version=None,
+            )
+        },
+        entity_descriptions={
+            DeviceKey(key="signal_strength", device_id=None): SensorDescription(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+                native_unit_of_measurement=Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+            ),
+        },
+        entity_values={
+            DeviceKey(key="signal_strength", device_id=None): SensorValue(
+                device_key=DeviceKey(key="signal_strength", device_id=None),
+                name="Signal Strength",
+                native_value=-34,
+            ),
+        },
+        binary_entity_descriptions={},
+        binary_entity_values={},
+        events={},
+    )
+
+
 def test_passive_data_needs_polling() -> None:
     """Test passive data need polling."""
     parser = INKBIRDBluetoothDeviceData(Model.IBS_TH)
