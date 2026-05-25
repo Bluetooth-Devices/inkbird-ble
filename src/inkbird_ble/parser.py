@@ -108,10 +108,10 @@ IBT_4WB_DATA_LENGTH = 10
 # Byte 1: parameter (or probe bitmask for calibration)
 # Bytes 2-5: additional parameters
 # Byte 6: 0x00 terminator
-IBT_4WB_CMD_UNIT_C = b"\x03\x43\x00\x00\x00\x00\x00"   # display °C
-IBT_4WB_CMD_UNIT_F = b"\x03\x46\x00\x00\x00\x00\x00"   # display °F
+IBT_4WB_CMD_UNIT_C = b"\x03\x43\x00\x00\x00\x00\x00"  # display °C
+IBT_4WB_CMD_UNIT_F = b"\x03\x46\x00\x00\x00\x00\x00"  # display °F
 IBT_4WB_CMD_SOUND_ON = b"\x0b\x5a\x00\x00\x00\x00\x00"  # un-mute / beeper on
-IBT_4WB_CMD_SOUND_OFF = b"\x0b\x11\x00\x00\x00\x00\x00" # mute / beeper off
+IBT_4WB_CMD_SOUND_OFF = b"\x0b\x11\x00\x00\x00\x00\x00"  # mute / beeper off
 # State-sync: asks the device to ACK with current calibration values.
 # Also serves as keepalive -- the Inkbird app sends this after every write.
 IBT_4WB_CMD_STATE_SYNC = b"\x0a\x0f\x00\x00\x00\x00\x00"
@@ -619,9 +619,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 break
             await asyncio.sleep(IBT_4WB_KEEPALIVE_INTERVAL)
 
-    def _notify_ibt_4wb(
-        self, sender: BleakGATTCharacteristic, data: bytearray
-    ) -> None:
+    def _notify_ibt_4wb(self, sender: BleakGATTCharacteristic, data: bytearray) -> None:
         """Dispatch an IBT-4WB notification to the temperature update handler."""
         if len(data) == IBT_4WB_DATA_LENGTH:
             self._update_ibt_4wb_notify(bytes(data))
@@ -1106,9 +1104,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         cmd = bytes([0x09, mask, cal[0], cal[1], cal[2], cal[3], 0x00])
         await self._async_ibt_4wb_write(ble_device, cmd)
 
-    async def _async_ibt_4wb_write(
-        self, ble_device: BLEDevice, cmd: bytes
-    ) -> None:
+    async def _async_ibt_4wb_write(self, ble_device: BLEDevice, cmd: bytes) -> None:
         """Write a command to FF02 then send the state-sync to get an ACK.
 
         Reuses the persistent keepalive connection if it is still active to

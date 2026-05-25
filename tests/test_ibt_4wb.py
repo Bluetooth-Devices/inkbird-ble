@@ -199,10 +199,10 @@ def test_ibt_4wb_notify_all_probes_active() -> None:
     parser.update(service_info)
 
     payload = make_notify_payload(
-        probe1_f10=680,   # 20.0 °C
-        probe2_f10=750,   # 23.9 °C
+        probe1_f10=680,  # 20.0 °C
+        probe2_f10=750,  # 23.9 °C
         probe3_f10=2120,  # 100.0 °C
-        probe4_f10=320,   # 0.0 °C
+        probe4_f10=320,  # 0.0 °C
     )
     parser._notify_callback(MagicMock(), bytearray(payload))  # noqa: SLF001
 
@@ -668,9 +668,9 @@ async def test_calibration_probe1_minus_0_1c() -> None:
         await parser.async_ibt_4wb_set_calibration(_ble_device(), {1: -0.1})
 
     cmd = mock_client.write_gatt_char.call_args_list[0].args[1]
-    assert cmd[0] == 0x09          # calibration command
-    assert cmd[1] == 0x01          # probe 1 bitmask
-    assert cmd[2] == 0xFF          # -1 as unsigned byte
+    assert cmd[0] == 0x09  # calibration command
+    assert cmd[1] == 0x01  # probe 1 bitmask
+    assert cmd[2] == 0xFF  # -1 as unsigned byte
     assert cmd[3] == cmd[4] == cmd[5] == 0x00
 
 
@@ -683,8 +683,8 @@ async def test_calibration_probe2_plus_0_1c() -> None:
         await parser.async_ibt_4wb_set_calibration(_ble_device(), {2: 0.1})
 
     cmd = mock_client.write_gatt_char.call_args_list[0].args[1]
-    assert cmd[1] == 0x02          # probe 2 bitmask
-    assert cmd[3] == 0x01          # +1
+    assert cmd[1] == 0x02  # probe 2 bitmask
+    assert cmd[3] == 0x01  # +1
 
 
 @pytest.mark.asyncio
@@ -696,8 +696,8 @@ async def test_calibration_probe4_plus_1c() -> None:
         await parser.async_ibt_4wb_set_calibration(_ble_device(), {4: 1.0})
 
     cmd = mock_client.write_gatt_char.call_args_list[0].args[1]
-    assert cmd[1] == 0x08          # probe 4 bitmask
-    assert cmd[5] == 0x12          # +18
+    assert cmd[1] == 0x08  # probe 4 bitmask
+    assert cmd[5] == 0x12  # +18
 
 
 @pytest.mark.asyncio
@@ -709,7 +709,7 @@ async def test_calibration_probe4_minus_1c() -> None:
         await parser.async_ibt_4wb_set_calibration(_ble_device(), {4: -1.0})
 
     cmd = mock_client.write_gatt_char.call_args_list[0].args[1]
-    assert cmd[5] == 0xEE          # -18 as unsigned byte
+    assert cmd[5] == 0xEE  # -18 as unsigned byte
 
 
 @pytest.mark.asyncio
@@ -721,8 +721,8 @@ async def test_calibration_probe3_minus_0_2c() -> None:
         await parser.async_ibt_4wb_set_calibration(_ble_device(), {3: -0.2})
 
     cmd = mock_client.write_gatt_char.call_args_list[0].args[1]
-    assert cmd[1] == 0x04          # probe 3 bitmask
-    assert cmd[4] == 0xFD          # -3 as unsigned byte
+    assert cmd[1] == 0x04  # probe 3 bitmask
+    assert cmd[4] == 0xFD  # -3 as unsigned byte
 
 
 @pytest.mark.asyncio
@@ -734,7 +734,7 @@ async def test_calibration_multi_probe() -> None:
         await parser.async_ibt_4wb_set_calibration(_ble_device(), {1: 0.0, 3: 0.0})
 
     cmd = mock_client.write_gatt_char.call_args_list[0].args[1]
-    assert cmd[1] == 0x05          # 0x01 | 0x04
+    assert cmd[1] == 0x05  # 0x01 | 0x04
 
 
 def test_calibration_invalid_probe_raises() -> None:
