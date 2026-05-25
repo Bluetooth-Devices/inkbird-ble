@@ -3650,9 +3650,7 @@ async def test_int_11p_b_poll() -> None:
     # 0xAA 0x20 0x80 0x1D 0xC8 0x38 0x54
     # probe=32C ambient=29C probe_batt=0xC8&0x7F=72% case_batt=0x38>>1=28%
     read_gatt_char_mock = AsyncMock(return_value=b"\xaa\x20\x80\x1d\xc8\x38\x54")
-    mock_client = MagicMock(
-        read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock()
-    )
+    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
     with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
         update = await parser.async_poll(
             BLEDevice(address="90:7B:C6:0A:06:28", name="INT-11P-B", details={})
@@ -3672,9 +3670,7 @@ async def test_int_11p_b_poll_skips_zero_ambient() -> None:
     parser = INKBIRDBluetoothDeviceData(Model.INT_11P_B)
     parser.update(_int_11p_b_service_info())
     read_gatt_char_mock = AsyncMock(return_value=b"\xaa\x20\x80\x00\xc8\x38\x54")
-    mock_client = MagicMock(
-        read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock()
-    )
+    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
     with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
         update = await parser.async_poll(
             BLEDevice(address="90:7B:C6:0A:06:28", name="INT-11P-B", details={})
@@ -3690,9 +3686,7 @@ async def test_int_11p_b_poll_short_read_ignored() -> None:
     parser = INKBIRDBluetoothDeviceData(Model.INT_11P_B)
     parser.update(_int_11p_b_service_info())
     read_gatt_char_mock = AsyncMock(return_value=b"\xaa\x20\x80")
-    mock_client = MagicMock(
-        read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock()
-    )
+    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
     with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
         update = await parser.async_poll(
             BLEDevice(address="90:7B:C6:0A:06:28", name="INT-11P-B", details={})
