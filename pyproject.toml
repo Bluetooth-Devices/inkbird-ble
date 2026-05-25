@@ -103,20 +103,38 @@ ignore_errors = true
 requires = ["poetry-core>=2.1.0"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.ruff]
+target-version = "py311"
+
 [tool.ruff.lint]
 select = [
+    "A",   # flake8-builtins
+    "ANN", # flake8-annotations
+    "ARG", # flake8-unused-arguments
     "ASYNC", # async rules
     "B",   # flake8-bugbear
+    "BLE", # flake8-blind-except
     "C4",  # flake8-comprehensions
-    "F",   # pyflake
+    "C90", # mccabe complexity
+    "D",   # pydocstyle
+    "DTZ", # flake8-datetimez
     "E",   # pycodestyle
-    "W",   # pycodestyle
-    "UP",  # pyupgrade
-    "I",   # isort
-    "RUF", # ruff specific
+    "EM",  # flake8-errmsg
+    "ERA", # eradicate
+    "EXE", # flake8-executable
+    "F",   # pyflake
+    "FA",  # flake8-future-annotations
+    "FIX", # flake8-fixme
     "FLY", # flynt
     "FURB", # refurb
-    "G", # flake8-logging-format   ,
+    "G", # flake8-logging-format
+    "I",   # isort
+    "ICN", # flake8-import-conventions
+    "INP", # flake8-no-pep420
+    "ISC", # flake8-implicit-str-concat
+    "LOG", # flake8-logging
+    "N",   # pep8-naming
+    "NPY", # numpy-specific rules
     "PERF", # Perflint
     "PGH", # pygrep-hooks
     "PIE", # flake8-pie
@@ -124,27 +142,50 @@ select = [
     "PT", # flake8-pytest-style
     "PTH", # flake8-pathlib
     "PYI", # flake8-pyi
+    "Q",   # flake8-quotes
     "RET", # flake8-return
-    "RSE", # flake8-raise    ,
+    "RSE", # flake8-raise
+    "RUF", # ruff specific
+    "S",   # flake8-bandit
     "SIM", # flake8-simplify
     "SLF", # flake8-self
     "SLOT", # flake8-slots
-    "T100", # Trace found: {name} used
+    "T10", # flake8-debugger
     "T20", # flake8-print
     "TC", # flake8-type-checking
+    "TD",  # flake8-todos
     "TID", # Tidy imports
     "TRY", # tryceratops
+    "UP",  # pyupgrade
+    "W",   # pycodestyle
+    "YTT", # flake8-2020
+]
+ignore = [
+    "ANN401",   # any-type: Any is sometimes the correct type
+    "ASYNC109", # timeout parameters are part of the public async API
+    "D100",     # undocumented-public-module
+    "D101",     # undocumented-public-class
+    "D102",     # undocumented-public-method
+    "D103",     # undocumented-public-function
+    "D104",     # undocumented-public-package
+    "D105",     # undocumented-magic-method
+    "D106",     # undocumented-public-nested-class
+    "D107",     # undocumented-public-init
+    "D203",     # incorrect-blank-line-before-class (incompatible with D211)
+    "D213",     # multi-line-summary-second-line (incompatible with D212)
 ]
 
 
 [tool.ruff.lint.per-file-ignores]
+# Sphinx-generated config: `copyright` shadows a builtin by convention,
+# template imports are left commented, and the docs tree has no __init__.py.
+"docs/source/conf.py" = ["A001", "ERA001", "INP001"]
 "tests/**/*" = [
-    "D100",
-    "D101",
-    "D102",
-    "D103",
-    "D104",
-    "S101",
-    "PLR2004",
+    "ANN",     # test functions need not be annotated
+    "ARG",     # pytest fixtures are requested for side effects, not values
+    "D",       # test names are self-documenting; docstring rules add noise
+    "N802",    # test names embed device model identifiers (e.g. test_IBS_TH)
     "PLR0915",
+    "PLR2004",
+    "S101",
 ]
