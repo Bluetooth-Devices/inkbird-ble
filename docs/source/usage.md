@@ -90,6 +90,11 @@ if data.poll_needed(service_info, last_poll=None):
 `poll_needed()` rate-limits itself, so it is safe to call on every
 advertisement; it only returns `True` when a fresh read is actually due.
 
+The `INT-11P-B` BBQ probe is a polling model that carries no readings in its
+advertisement at all — it is detected by name and read over GATT. A poll yields
+its probe and ambient temperatures (`temperature_probe`, `temperature_ambient`)
+and its probe and case battery levels (`probe_battery`, `case_battery`).
+
 ### Notify models
 
 Some models (for example the `IAM-T1` and the `IHT-2PB` probe thermometer) push
