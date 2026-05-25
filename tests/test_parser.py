@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -57,7 +57,6 @@ def make_bluetooth_service_info(  # noqa: PLR0913
             name=name,
             address=address,
             details={},
-            rssi=rssi,
         ),
         time=monotonic_time_coarse(),
         advertisement=None,
@@ -1672,7 +1671,6 @@ async def test_passive_polling_ibs_th() -> None:
                 address="aa:bb:cc:dd:ee:ff",
                 name="N0BYD",
                 details={},
-                rssi=-60,
             )
         )
     assert update == SensorUpdate(
@@ -1753,7 +1751,6 @@ async def test_passive_polling_ith_11_b() -> None:
                 address="aa:bb:cc:dd:ee:ff",
                 name="N0BYD",
                 details={},
-                rssi=-60,
             )
         )
     assert update == SensorUpdate(
@@ -1851,7 +1848,6 @@ async def test_passive_polling_fails_missing_char() -> None:
                 address="aa:bb:cc:dd:ee:ff",
                 name="N0BYD",
                 details={},
-                rssi=-60,
             )
         )
 
@@ -1892,7 +1888,6 @@ async def test_passive_polling_fails_generic_bleak_error() -> None:
                 address="aa:bb:cc:dd:ee:ff",
                 name="N0BYD",
                 details={},
-                rssi=-60,
             )
         )
 
@@ -1939,7 +1934,6 @@ async def test_notify_does_nothing_not_supported() -> None:
             address="aa:bb:cc:dd:ee:ff",
             name="N0BYD",
             details={},
-            rssi=-60,
         ),
     )
     await parser.async_stop()
@@ -1994,7 +1988,6 @@ async def test_notify_callbacks_iam_t1_f() -> None:
                 address="62:00:A1:3C:AE:7B",
                 name="Ink@IAM-T1",
                 details={},
-                rssi=-60,
             ),
         )
         await asyncio.sleep(0)
@@ -2119,7 +2112,6 @@ async def test_notify_iam_t1_c() -> None:
                 address="62:00:A1:3C:AE:7B",
                 name="Ink@IAM-T1",
                 details={},
-                rssi=-60,
             ),
         )
         await asyncio.sleep(0)
@@ -2252,7 +2244,6 @@ async def test_iam_t1_multiple_updates_with_broken_packet() -> None:
                 address="62:00:A1:3C:AE:7B",
                 name="Ink@IAM-T1",
                 details={},
-                rssi=-44,
             ),
         )
         await asyncio.sleep(0)
@@ -2337,7 +2328,6 @@ async def test_retry_iam_t1_f() -> None:
                 address="62:00:A1:3C:AE:7B",
                 name="Ink@IAM-T1",
                 details={},
-                rssi=-60,
             ),
         )
         await asyncio.sleep(0)
@@ -2407,7 +2397,6 @@ async def test_reconnect_iam_t1_f() -> None:
                 address="62:00:A1:3C:AE:7B",
                 name="Ink@IAM-T1",
                 details={},
-                rssi=-60,
             ),
         )
         await asyncio.sleep(0)
@@ -2415,7 +2404,7 @@ async def test_reconnect_iam_t1_f() -> None:
         set_disconnected_callback_mock.call_args[0][0](mock_client)
         await asyncio.sleep(0)
         assert start_notify_calls == 1
-        async_fire_time_changed(datetime.utcnow() + timedelta(seconds=5))
+        async_fire_time_changed(datetime.now(UTC) + timedelta(seconds=5))
         await asyncio.sleep(0)
         assert start_notify_calls == 2
         await parser.async_stop()
