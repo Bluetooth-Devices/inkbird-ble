@@ -92,8 +92,9 @@ advertisement; it only returns `True` when a fresh read is actually due.
 
 ### Notify models
 
-Some models (for example the `IAM-T1`) push readings over GATT notifications.
-Start a notification session and receive updates through callbacks:
+Some models (for example the `IAM-T1` and the `IHT-2PB` probe thermometer) push
+readings over GATT notifications. Start a notification session and receive
+updates through callbacks:
 
 ```python
 def on_update(update):
