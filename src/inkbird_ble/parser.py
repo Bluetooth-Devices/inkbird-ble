@@ -99,7 +99,9 @@ EIGHTEEN_BYTE_MESSAGE_LENGTH = 18
 
 # Manufacturer-data IDs used to disambiguate models that advertise a generic
 # or shared local name. These are the integer keys of the manufacturer_data
-# dict (little-endian company identifiers as exposed by the BLE stack).
+# dict (Bluetooth SIG company identifiers). Endianness only matters when the
+# key is serialized to its 2-byte wire form, which the code does explicitly
+# with int(...).to_bytes(2, "little").
 GENERIC_18_MANUFACTURER_ID = 9289
 IAM_T1_MANUFACTURER_ID = 12628
 IAM_T2_MANUFACTURER_ID = 12884
