@@ -53,6 +53,7 @@ class Model(StrEnum):
     IAM_T1 = "IAM-T1"
     IAM_T2 = "IAM-T2"
     IHT_2PB = "IHT-2PB"
+    INT_11P_B = "INT-11P-B"
 
 
 class ModelType(Enum):
@@ -144,6 +145,26 @@ IHT_2PB_PROBE_SELECTORS = {0x02: 1, 0x04: 2, 0x06: 3}
 IHT_2PB_TEMP_BASE = 255
 IHT_2PB_NEG_HI = 254  # high byte >= this marks a sub-zero reading
 IHT_2PB_POS_MAX_HI = 11  # high byte <= this marks a valid positive reading
+
+# INT-11P-B GATT support. This connectable BBQ probe carries no readings in its
+# advertisement; the values are read from the ``fff1`` characteristic on the
+# ``fff0`` service. The byte layout was reverse-engineered by the community
+# (https://github.com/Bluetooth-Devices/inkbird-ble/issues/41 and the linked
+# Home Assistant forum thread) and is not yet verified against hardware here:
+#   [0] header (0xAA)
+#   [1] probe (internal) temperature, °C
+#   [2] flags (bit 7 = probe charging)
+#   [3] ambient temperature, °C (0 means "no ambient reading")
+#   [4] probe battery: low 7 bits = percentage, bit 7 = flag
+#   [5] case battery: bits 1-7 = percentage (>> 1), bit 0 = case charging
+#   [6] unknown
+INT_11P_B_DATA_CHARACTERISTIC_UUID = UUID("0000fff1-0000-1000-8000-00805f9b34fb")
+INT_11P_B_MIN_READ_LEN = 6
+INT_11P_B_PROBE_TEMP_INDEX = 1
+INT_11P_B_AMBIENT_TEMP_INDEX = 3
+INT_11P_B_PROBE_BATTERY_INDEX = 4
+INT_11P_B_CASE_BATTERY_INDEX = 5
+INT_11P_B_BATTERY_MASK = 0x7F
 
 MODEL_INFO = {
     Model.IBBQ_1: ModelInfo(
@@ -324,6 +345,21 @@ MODEL_INFO = {
         parse_adv=False,
         notify_init_writes=IHT_2PB_INIT_WRITES,
     ),
+    Model.INT_11P_B: ModelInfo(
+        name="INT-11P-B",
+        model_type=ModelType.SENSOR,
+        local_name="int-11p-b",
+        # No usable advertisement payload — readings are read from the fff1
+        # characteristic. message_length=0 keeps it out of the adv length /
+        # passive dispatch sets; polling is enabled via GATT_POLL_MODELS.
+        message_length=0,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=INKBIRD_SERVICE_UUID,
+        characteristic_uuid=INT_11P_B_DATA_CHARACTERISTIC_UUID,
+        notify_uuid=None,
+        use_local_name_for_device=False,
+        parse_adv=False,
+    ),
 }
 
 INKBIRD_NAMES = {
@@ -376,6 +412,10 @@ NOTIFY_MODELS = {
     for model_type, model_info in MODEL_INFO.items()
     if model_info.notify_uuid is not None
 }
+# Connectable probes whose readings are only available via a GATT read of a
+# data characteristic (no usable advertisement payload). They are not in the
+# length-based SENSOR_MODELS sets, but they must still be polled.
+GATT_POLL_MODELS = {Model.INT_11P_B}
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
 
@@ -751,26 +791,38 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         This is called every time we get a service_info for a device or if
         called manually.
 
-        The recency check uses ``service_info.time`` rather than
-        ``self._last_full_update`` so a healthy device whose readings
-        have not changed (and whose repeat advertisements are therefore
-        deduplicated before the parser runs) does not get marked as
-        needing a connectable poll.
+        For models that broadcast their readings, the recency check uses
+        ``service_info.time`` rather than ``self._last_full_update`` so a
+        healthy device whose readings have not changed (and whose repeat
+        advertisements are therefore deduplicated before the parser runs) does
+        not get marked as needing a connectable poll.
+
+        For poll-only models (``GATT_POLL_MODELS``) the advertisement carries no
+        readings, so its freshness is irrelevant; the gate is instead the time
+        since the last successful poll (``last_poll`` is the number of seconds
+        since the last poll, or ``None`` if the device has never been polled).
         """
-        poll_needed = self._supports_polling and (
-            not self._last_full_update
-            or (monotonic_time_coarse() - service_info.time) > MIN_POLL_INTERVAL
-        )
+        if not self._supports_polling:
+            poll_needed = False
+        elif self._device_type in GATT_POLL_MODELS:
+            poll_needed = last_poll is None or last_poll > MIN_POLL_INTERVAL
+        else:
+            poll_needed = (
+                not self._last_full_update
+                or (monotonic_time_coarse() - service_info.time) > MIN_POLL_INTERVAL
+            )
         _LOGGER.debug("Poll needed for INKBIRD device %s: %s", self.name, poll_needed)
         return poll_needed
 
     @property
     def _supports_polling(self) -> bool:
         """Return True if the device supports polling."""
-        return (
-            self._device_type is not None
-            and self._device_type in SENSOR_MODELS
-            and MODEL_INFO[self._device_type].supports_polling
+        return self._device_type is not None and (
+            (
+                self._device_type in SENSOR_MODELS
+                and MODEL_INFO[self._device_type].supports_polling
+            )
+            or self._device_type in GATT_POLL_MODELS
         )
 
     async def _async_connect_and_read(self, ble_device: BLEDevice) -> bytes:
@@ -805,6 +857,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # Battery doesn't seem to be available for these models
             # but it is in the advertisement data
             self._update_nine_byte_model_from_raw(payload[0:4], None)
+        elif self._device_type == Model.INT_11P_B:
+            self._update_int_11p_b_from_raw(payload)
         return self._finish_update()
 
     def _update_bbq_model(self, data: bytes, msg_length: int) -> None:
@@ -902,6 +956,47 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
         self.update_predefined_sensor(
             SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION, co2
+        )
+
+    def _update_int_11p_b_from_raw(self, payload: bytes) -> None:
+        """Update the sensor values for an INT-11P-B GATT read.
+
+        The probe exposes a small fixed-layout buffer on its ``fff1``
+        characteristic instead of broadcasting readings. Decoding follows the
+        community reverse-engineering referenced from issue #41.
+        """
+        if len(payload) < INT_11P_B_MIN_READ_LEN:
+            _LOGGER.debug(
+                "INT-11P-B read too short (%d bytes): %s", len(payload), payload
+            )
+            return
+        self.update_predefined_sensor(
+            SensorLibrary.TEMPERATURE__CELSIUS,
+            payload[INT_11P_B_PROBE_TEMP_INDEX],
+            key="temperature_probe",
+            name="Probe Temperature",
+        )
+        ambient_temp = payload[INT_11P_B_AMBIENT_TEMP_INDEX]
+        if ambient_temp:
+            # An ambient reading of 0 means the probe is not reporting an
+            # ambient value (the community config filters it out), so skip it.
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS,
+                ambient_temp,
+                key="temperature_ambient",
+                name="Ambient Temperature",
+            )
+        self.update_predefined_sensor(
+            SensorLibrary.BATTERY__PERCENTAGE,
+            payload[INT_11P_B_PROBE_BATTERY_INDEX] & INT_11P_B_BATTERY_MASK,
+            key="probe_battery",
+            name="Probe Battery",
+        )
+        self.update_predefined_sensor(
+            SensorLibrary.BATTERY__PERCENTAGE,
+            payload[INT_11P_B_CASE_BATTERY_INDEX] >> 1,
+            key="case_battery",
+            name="Case Battery",
         )
 
     _device_type_dispatch: ClassVar[

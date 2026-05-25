@@ -23,6 +23,7 @@ from sensor_state_data import (
 from inkbird_ble.parser import (
     IHT_2PB_NOTIFY_UUID,
     IHT_2PB_WRITE_UUID,
+    MIN_POLL_INTERVAL,
     INKBIRDBluetoothDeviceData,
     Model,
 )
@@ -3597,3 +3598,105 @@ def test_notify_callback_drops_model_without_handler() -> None:
     parser = INKBIRDBluetoothDeviceData(Model.IAM_T2, {}, _update_callback, None)
     parser._notify_callback(MagicMock(), bytearray(b"\x55\xaa\x02\x00\x00\xf5"))  # noqa: SLF001
     assert updates == []
+
+
+def _int_11p_b_service_info() -> BluetoothServiceInfoBleak:
+    """A representative INT-11P-B advertisement (carries no readings)."""
+    return make_bluetooth_service_info(
+        name="INT-11P-B",
+        manufacturer_data={1576: b"\x0a\xc6\x7b\x90"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="90:7B:C6:0A:06:28",
+        rssi=-55,
+        service_data={},
+        source="local",
+    )
+
+
+def test_int_11p_b_detected_from_advertisement() -> None:
+    """The INT-11P-B is identified by name and is a poll-only GATT model."""
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = _int_11p_b_service_info()
+    parser.update(service_info)
+    assert parser.device_type == Model.INT_11P_B
+    assert parser.supported(service_info) is True
+    assert parser.name == "INT-11P-B 0628"
+    # It reads from a characteristic rather than streaming notifications.
+    assert parser.uses_notify is False
+    # No readings in the advertisement, so a poll is due on first sighting.
+    assert parser.poll_needed(service_info, None) is True
+
+
+def test_int_11p_b_poll_needed_rate_limited() -> None:
+    """poll_needed gates on time since last poll, not advertisement recency."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11P_B)
+    service_info = _int_11p_b_service_info()
+    parser.update(service_info)
+    # Never polled -> due now.
+    assert parser.poll_needed(service_info, None) is True
+    # Polled recently -> not due yet (advertisement is always "fresh").
+    assert parser.poll_needed(service_info, 10.0) is False
+    # Last poll older than the interval -> due again.
+    assert parser.poll_needed(service_info, MIN_POLL_INTERVAL + 1.0) is True
+
+
+@pytest.mark.asyncio
+async def test_int_11p_b_poll() -> None:
+    """Polling reads fff1 and decodes both temperatures and both batteries."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11P_B)
+    service_info = _int_11p_b_service_info()
+    parser.update(service_info)
+    assert parser.poll_needed(service_info, None) is True
+    # 0xAA 0x20 0x80 0x1D 0xC8 0x38 0x54
+    # probe=32C ambient=29C probe_batt=0xC8&0x7F=72% case_batt=0x38>>1=28%
+    read_gatt_char_mock = AsyncMock(return_value=b"\xaa\x20\x80\x1d\xc8\x38\x54")
+    mock_client = MagicMock(
+        read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock()
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="90:7B:C6:0A:06:28", name="INT-11P-B", details={})
+        )
+    values = {
+        key.key: value.native_value for key, value in update.entity_values.items()
+    }
+    assert values["temperature_probe"] == 32
+    assert values["temperature_ambient"] == 29
+    assert values["probe_battery"] == 72
+    assert values["case_battery"] == 28
+
+
+@pytest.mark.asyncio
+async def test_int_11p_b_poll_skips_zero_ambient() -> None:
+    """An ambient reading of 0 means "no value" and is not reported."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11P_B)
+    parser.update(_int_11p_b_service_info())
+    read_gatt_char_mock = AsyncMock(return_value=b"\xaa\x20\x80\x00\xc8\x38\x54")
+    mock_client = MagicMock(
+        read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock()
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="90:7B:C6:0A:06:28", name="INT-11P-B", details={})
+        )
+    keys = {key.key for key in update.entity_values}
+    assert "temperature_probe" in keys
+    assert "temperature_ambient" not in keys
+
+
+@pytest.mark.asyncio
+async def test_int_11p_b_poll_short_read_ignored() -> None:
+    """A truncated read does not emit any temperature or battery values."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11P_B)
+    parser.update(_int_11p_b_service_info())
+    read_gatt_char_mock = AsyncMock(return_value=b"\xaa\x20\x80")
+    mock_client = MagicMock(
+        read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock()
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="90:7B:C6:0A:06:28", name="INT-11P-B", details={})
+        )
+    keys = {key.key for key in update.entity_values}
+    assert "temperature_probe" not in keys
+    assert "probe_battery" not in keys
