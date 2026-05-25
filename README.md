@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://github.com/bluetooth-devices/inkbird-ble/actions?query=workflow%3ACI">
-    <img src="https://img.shields.io/github/workflow/status/bluetooth-devices/inkbird-ble/CI/main?label=CI&logo=github&style=flat-square" alt="CI Status" >
+    <img src="https://img.shields.io/github/actions/workflow/status/bluetooth-devices/inkbird-ble/ci.yml?branch=main&label=CI&logo=github&style=flat-square" alt="CI Status" >
   </a>
   <a href="https://inkbird-ble.readthedocs.io">
     <img src="https://img.shields.io/readthedocs/inkbird-ble.svg?logo=read-the-docs&logoColor=fff&style=flat-square" alt="Documentation Status">
