@@ -60,13 +60,6 @@ build_command = "pip install poetry && poetry build"
 [tool.pytest.ini_options]
 addopts = "-v -Wdefault --cov=inkbird_ble --cov-report=term-missing:skip-covered"
 pythonpath = ["src"]
-filterwarnings = [
-    # Guard against the two deprecations cleaned up in the test suite so they
-    # cannot silently creep back in (e.g. a future bleak bump that removes the
-    # ignored BLEDevice positional args entirely).
-    "error:Passing additional arguments for BLEDevice:DeprecationWarning",
-    "error:datetime.datetime.utcnow:DeprecationWarning",
-]
 
 [tool.coverage.run]
 branch = true
