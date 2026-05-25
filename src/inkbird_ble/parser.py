@@ -1,5 +1,4 @@
-"""
-Parser for Inkbird BLE advertisements.
+"""Parser for Inkbird BLE advertisements.
 
 This file is shamelessly copied from the following repository:
 https://github.com/Ernst79/bleparser/blob/c42ae922e1abed2720c7fac993777e1bd59c0c93/package/bleparser/inkbird.py
@@ -448,13 +447,13 @@ async def async_connect_action(
             raise
         finally:
             await client.disconnect()
-    raise AssertionError("unreachable")  # pragma: no cover
+    msg = "unreachable"  # pragma: no cover
+    raise AssertionError(msg)  # pragma: no cover
 
 
 @lru_cache
 def try_parse_model(value: str | Model | None) -> Model | None:
-    """
-    Try to parse the value into a model.
+    """Try to parse the value into a model.
 
     Return None if parsing fails.
     """
@@ -525,7 +524,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     ) -> None:
         """Start the device."""
         self._set_name_and_manufacturer(service_info)
-        assert self._device_type is not None
+        if TYPE_CHECKING:
+            assert self._device_type is not None
         self._running = True
         if self._device_type not in NOTIFY_MODELS:
             return
@@ -555,7 +555,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             await asyncio.sleep(5)
 
     async def _async_notify_action(self, client: BleakClientWithServiceCache) -> None:
-        assert self._device_type is not None
+        if TYPE_CHECKING:
+            assert self._device_type is not None
         dev_info = MODEL_INFO[self._device_type]
         notify_uuid = dev_info.notify_uuid
         loop = asyncio.get_running_loop()
@@ -598,7 +599,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             _LOGGER.debug("IAM-T1 unit: %s (%s)", unit, self._device_data)
             if unit != self._device_data.get("temp_unit"):
                 self._device_data["temp_unit"] = unit
-                assert self._device_data_changed_callback is not None
+                if TYPE_CHECKING:
+                    assert self._device_data_changed_callback is not None
                 _LOGGER.debug("IAM-T1 unit changed: %s (%s)", unit, self._device_data)
                 self._device_data_changed_callback(self._device_data)
         elif (
@@ -625,7 +627,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self.update_predefined_sensor(
                 SensorLibrary.PRESSURE__HPA, data[11] << 8 | data[12]
             )
-            assert self._update_callback is not None
+            if TYPE_CHECKING:
+                assert self._update_callback is not None
             self._update_callback(self._finish_update())
         else:
             _LOGGER.debug(
@@ -635,7 +638,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 bytes(data[:3]),
             )
 
-    def _notify_iht_2pb(self, sender: BleakGATTCharacteristic, data: bytearray) -> None:
+    def _notify_iht_2pb(
+        self, _sender: BleakGATTCharacteristic, data: bytearray
+    ) -> None:
         """Parse an IHT-2PB notification.
 
         Each packet reports one probe: ``data[2]`` selects the probe (2/4/6 ->
@@ -667,7 +672,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             key=f"temperature_probe_{probe_num}",
             name=f"Temperature Probe {probe_num}",
         )
-        assert self._update_callback is not None
+        if TYPE_CHECKING:
+            assert self._update_callback is not None
         self._update_callback(self._finish_update())
 
     _notify_dispatch: ClassVar[
@@ -709,6 +715,56 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self.set_device_name(f"{dev_type_name} {short_address(address)}")
             self.set_device_type(dev_type_name)
 
+    def _detect_device_type(
+        self,
+        service_info: BluetoothServiceInfoBleak,
+        manufacturer_data: dict[int, bytes],
+        data: bytes,
+        msg_length: int,
+    ) -> bool:
+        """Identify the device type from advertisement data.
+
+        Set ``self._device_type`` and return ``True`` when a known model is
+        recognised, or return ``False`` when the advertisement does not match
+        any supported device. The branchy match chain keeps this above the
+        mccabe threshold; it is a single linear dispatch by design.
+        """
+        lower_name = service_info.name.lower()
+        if (lower_name in INKBIRD_NAMES) and (
+            msg_length in SENSOR_MSG_LENGTHS
+            or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
+        ):
+            self._device_type = INKBIRD_NAMES[lower_name]
+        elif lower_name.startswith("ink@iht-2pb"):
+            # The IHT-2PB advertises as "Ink@IHT-2PB#<suffix>" and carries
+            # no usable payload; identify it by name prefix and let the
+            # notify flow (async_start) read its probes over GATT.
+            self._device_type = Model.IHT_2PB
+        elif is_bbq(lower_name) and msg_length in BBQ_LENGTH_TO_TYPE:
+            self._device_type = BBQ_LENGTH_TO_TYPE[msg_length]
+        elif (
+            msg_length == EIGHTEEN_BYTE_MESSAGE_LENGTH
+            and GENERIC_18_MANUFACTURER_ID in manufacturer_data
+            and "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
+            and manufacturer_data[GENERIC_18_MANUFACTURER_ID].endswith(b"\x00\x00\x00")
+        ):
+            self._device_type = Model.GENERIC_18
+        elif IAM_T1_MANUFACTURER_ID in manufacturer_data and manufacturer_data[
+            IAM_T1_MANUFACTURER_ID
+        ].startswith(b"AC-6200"):
+            # AC-6200
+            self._device_type = Model.IAM_T1
+        elif (
+            msg_length == SEVENTEEN_BYTE_MESSAGE_LENGTH
+            and IAM_T2_MANUFACTURER_ID in manufacturer_data
+            and data[2:4] == IAM_T2_MAC_PREFIX  # MAC starts with 00:62
+        ):
+            # IAM-T2
+            self._device_type = Model.IAM_T2
+        else:
+            return False
+        return True
+
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
@@ -718,47 +774,18 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         last_id = list(manufacturer_data)[-1]
         data = int(last_id).to_bytes(2, byteorder="little") + manufacturer_data[last_id]
         msg_length = len(data)
-        if self._device_type in (None, Model.GENERIC_18):
-            lower_name = service_info.name.lower()
-            # If we do not know the device type yet, try to determine it
-            # from the advertisement data.
-            if (lower_name in INKBIRD_NAMES) and (
-                msg_length in SENSOR_MSG_LENGTHS
-                or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
-            ):
-                self._device_type = INKBIRD_NAMES[lower_name]
-            elif lower_name.startswith("ink@iht-2pb"):
-                # The IHT-2PB advertises as "Ink@IHT-2PB#<suffix>" and carries
-                # no usable payload; identify it by name prefix and let the
-                # notify flow (async_start) read its probes over GATT.
-                self._device_type = Model.IHT_2PB
-            elif is_bbq(lower_name) and msg_length in BBQ_LENGTH_TO_TYPE:
-                self._device_type = BBQ_LENGTH_TO_TYPE[msg_length]
-            elif (
-                msg_length == EIGHTEEN_BYTE_MESSAGE_LENGTH
-                and GENERIC_18_MANUFACTURER_ID in manufacturer_data
-                and "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
-                and manufacturer_data[GENERIC_18_MANUFACTURER_ID].endswith(
-                    b"\x00\x00\x00"
-                )
-            ):
-                self._device_type = Model.GENERIC_18
-            elif IAM_T1_MANUFACTURER_ID in manufacturer_data and manufacturer_data[
-                IAM_T1_MANUFACTURER_ID
-            ].startswith(b"AC-6200"):
-                # AC-6200
-                self._device_type = Model.IAM_T1
-            elif (
-                msg_length == SEVENTEEN_BYTE_MESSAGE_LENGTH
-                and IAM_T2_MANUFACTURER_ID in manufacturer_data
-                and data[2:4] == IAM_T2_MAC_PREFIX  # MAC starts with 00:62
-            ):
-                # IAM-T2
-                self._device_type = Model.IAM_T2
-            else:
-                return
+        # If we do not know the device type yet, try to determine it from the
+        # advertisement data.
+        if self._device_type in (
+            None,
+            Model.GENERIC_18,
+        ) and not self._detect_device_type(
+            service_info, manufacturer_data, data, msg_length
+        ):
+            return
         self._set_name_and_manufacturer(service_info)
-        assert self._device_type is not None
+        if TYPE_CHECKING:
+            assert self._device_type is not None
         if not MODEL_INFO[self._device_type].parse_adv:
             # Device does not support parsing advertisement data
             return
@@ -787,9 +814,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def poll_needed(
         self, service_info: BluetoothServiceInfoBleak, last_poll: float | None
     ) -> bool:
-        """
-        This is called every time we get a service_info for a device or if
-        called manually.
+        """Return whether the device needs a connectable poll for this update.
+
+        Called every time we get a ``service_info`` for a device, or manually.
 
         For models that broadcast their readings, the recency check uses
         ``service_info.time`` rather than ``self._last_full_update`` so a
@@ -834,7 +861,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # This is needed because the cache may contain old data.
         # If the second attempt fails, raise an error.
         data = await async_connect_action(ble_device, self._async_poll_action)
-        assert data is not None
+        if TYPE_CHECKING:
+            assert data is not None
         return data
 
     async def _async_poll_action(
@@ -861,7 +889,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self._update_int_11p_b_from_raw(payload)
         return self._finish_update()
 
-    def _update_bbq_model(self, data: bytes, msg_length: int) -> None:
+    def _update_bbq_model(self, data: bytes, _msg_length: int) -> None:
         """Update a BBQ sensor model."""
         # Some are iBBQ, some are xBBQ
         if TYPE_CHECKING:
@@ -879,7 +907,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 name=f"Temperature Probe {num}",
             )
 
-    def _update_nine_byte_model(self, data: bytes, msg_length: int) -> None:
+    def _update_nine_byte_model(self, data: bytes, _msg_length: int) -> None:
         """Update the sensor values for a 9 byte model."""
         self._update_nine_byte_model_from_raw(data[0:4], data[7])
 
@@ -900,7 +928,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # for some models
             self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
 
-    def _update_eighteen_byte_model(self, data: bytes, msg_length: int) -> None:
+    def _update_eighteen_byte_model(self, data: bytes, _msg_length: int) -> None:
         """Update the sensor values for a 18 byte model."""
         self._update_eighteen_byte_model_from_raw(data[6:10], data[10])
 
@@ -926,12 +954,12 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if hum != 0:
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
 
-    def _update_seventeen_byte_model(self, data: bytes, msg_length: int) -> None:
+    def _update_seventeen_byte_model(self, data: bytes, _msg_length: int) -> None:
         """Update the sensor values for 17-byte sensor models (IAM-T2)."""
-        # Data format (17 bytes total):
-        # - Manufacturer ID (2 bytes)
-        # - Data payload (15 bytes):
-        #   MAC(6) + unknown(1) + status(1) + temp(2) + hum(2) + co2(2) + battery(1)
+        # Data format is 17 bytes total: a 2-byte manufacturer ID followed by
+        # a 15-byte payload laid out as 6 bytes of MAC, 1 unknown byte, 1
+        # status byte, then 2 bytes each of temperature, humidity and CO2, and
+        # finally 1 battery byte.
 
         # Parse status byte
         status = data[9]
@@ -950,7 +978,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         else:  # Celsius mode
             temperature_c = temperature_raw / 10.0
 
-        # TODO: Investigate battery encoding - observed value 145 = 75% on one device
+        # Battery is intentionally not reported: its encoding is unconfirmed
+        # (one device reported a raw value of 145 for 75%), so it is omitted
+        # rather than published incorrectly.
 
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temperature_c)
         self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
