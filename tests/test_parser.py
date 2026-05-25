@@ -3504,3 +3504,66 @@ async def test_notify_iht_2pb_write_error_is_swallowed() -> None:
         key.key: value.native_value for key, value in updates[-1].entity_values.items()
     }
     assert values["temperature_probe_1"] == 24.5
+
+
+@pytest.mark.asyncio
+async def test_notify_iht_2pb_ignored_after_stop() -> None:
+    """A notification delivered after the session is stopped is ignored."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IHT_2PB, {}, _update_callback, None)
+    service_info = make_bluetooth_service_info(
+        name="Ink@IHT-2PB#c4b",
+        manufacturer_data={18505: b"2PB6200a1359c4b"},
+        service_uuids=[],
+        address="62:00:A1:35:9C:4B",
+        rssi=-33,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+
+    captured: list[Callable[[UUID, bytes], None]] = []
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        captured.append(callback)
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        write_gatt_char=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:35:9C:4B",
+                name="Ink@IHT-2PB#c4b",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    # Once the session has stopped, a late notification must be a no-op.
+    captured[0](IHT_2PB_NOTIFY_UUID, b"\x55\xaa\x02\x00\x00\xf5")
+    assert updates == []
+
+
+def test_notify_callback_drops_model_without_handler() -> None:
+    """A notification for a model with no notify handler is dropped, not raised."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    # IAM-T2 is a sensor-only model with no entry in the notify dispatch table,
+    # so a stray notification must be ignored rather than raising.
+    parser = INKBIRDBluetoothDeviceData(Model.IAM_T2, {}, _update_callback, None)
+    parser._notify_callback(MagicMock(), bytearray(b"\x55\xaa\x02\x00\x00\xf5"))  # noqa: SLF001
+    assert updates == []
