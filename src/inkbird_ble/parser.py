@@ -88,6 +88,25 @@ INKBIRD_UNPACK = struct.Struct("<hH").unpack
 IAM_T1_NOTIFY_DATA_PREFIX = b"\xaa\x01"
 IAM_T1_NOTIFY_STATE_PREFIX = b"\xaa\x05"
 
+# IAM-T1 notification packet lengths (header + payload).
+IAM_T1_STATE_NOTIFY_LENGTH = 12
+IAM_T1_DATA_NOTIFY_LENGTH = 16
+
+# Advertisement message lengths (2-byte manufacturer id prefix + payload).
+NINE_BYTE_MESSAGE_LENGTH = 9
+SEVENTEEN_BYTE_MESSAGE_LENGTH = 17
+EIGHTEEN_BYTE_MESSAGE_LENGTH = 18
+
+# Manufacturer-data IDs used to disambiguate models that advertise a generic
+# or shared local name. These are the integer keys of the manufacturer_data
+# dict (little-endian company identifiers as exposed by the BLE stack).
+GENERIC_18_MANUFACTURER_ID = 9289
+IAM_T1_MANUFACTURER_ID = 12628
+IAM_T2_MANUFACTURER_ID = 12884
+
+# IAM-T2 advertises a payload whose MAC bytes start with 00:62.
+IAM_T2_MAC_PREFIX = b"\x00\x62"
+
 MODEL_INFO = {
     Model.IBBQ_1: ModelInfo(
         name="iBBQ-1",
@@ -270,18 +289,20 @@ SENSOR_MSG_LENGTHS = {
 NINE_BYTE_SENSOR_MODELS = {
     model_type
     for model_type, model_info in MODEL_INFO.items()
-    if model_info.model_type is ModelType.SENSOR and model_info.message_length == 9  # noqa: PLR2004
+    if model_info.model_type is ModelType.SENSOR
+    and model_info.message_length == NINE_BYTE_MESSAGE_LENGTH
 }
 EIGHTEEN_BYTE_SENSOR_MODELS = {
     model_type
     for model_type, model_info in MODEL_INFO.items()
-    if model_info.model_type is ModelType.SENSOR and model_info.message_length == 18  # noqa: PLR2004
+    if model_info.model_type is ModelType.SENSOR
+    and model_info.message_length == EIGHTEEN_BYTE_MESSAGE_LENGTH
 }
 SEVENTEEN_BYTE_SENSOR_MODELS = {
     model_type
     for model_type, model_info in MODEL_INFO.items()
     if model_info.model_type is ModelType.SENSOR
-    and model_info.message_length == 17  # noqa: PLR2004
+    and model_info.message_length == SEVENTEEN_BYTE_MESSAGE_LENGTH
     and model_info.parse_adv
 }
 SENSOR_MODELS = {
@@ -453,7 +474,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if not self._running or self._device_type != Model.IAM_T1:
             return
         # IAM_T1
-        if len(data) == 12 and bytes(data[1:3]) == IAM_T1_NOTIFY_STATE_PREFIX:  # noqa: PLR2004
+        if (
+            len(data) == IAM_T1_STATE_NOTIFY_LENGTH
+            and bytes(data[1:3]) == IAM_T1_NOTIFY_STATE_PREFIX
+        ):
             in_f = data[10] & 0xF
             unit = Units.TEMP_FAHRENHEIT if in_f else Units.TEMP_CELSIUS
             _LOGGER.debug("IAM-T1 unit: %s (%s)", unit, self._device_data)
@@ -462,7 +486,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 assert self._device_data_changed_callback is not None
                 _LOGGER.debug("IAM-T1 unit changed: %s (%s)", unit, self._device_data)
                 self._device_data_changed_callback(self._device_data)
-        elif len(data) == 16 and bytes(data[1:3]) == IAM_T1_NOTIFY_DATA_PREFIX:  # noqa: PLR2004
+        elif (
+            len(data) == IAM_T1_DATA_NOTIFY_LENGTH
+            and bytes(data[1:3]) == IAM_T1_NOTIFY_DATA_PREFIX
+        ):
             sign = data[4] & 0xF
             temp = data[5] << 8 | data[6]
             signed_temp = (temp if sign == 0 else -temp) / 10
@@ -543,22 +570,23 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             elif is_bbq(lower_name) and msg_length in BBQ_LENGTH_TO_TYPE:
                 self._device_type = BBQ_LENGTH_TO_TYPE[msg_length]
             elif (
-                msg_length == 18  # noqa: PLR2004
-                and 9289 in manufacturer_data  # noqa: PLR2004
+                msg_length == EIGHTEEN_BYTE_MESSAGE_LENGTH
+                and GENERIC_18_MANUFACTURER_ID in manufacturer_data
                 and "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
-                and manufacturer_data[9289].endswith(b"\x00\x00\x00")
+                and manufacturer_data[GENERIC_18_MANUFACTURER_ID].endswith(
+                    b"\x00\x00\x00"
+                )
             ):
                 self._device_type = Model.GENERIC_18
-            elif 12628 in manufacturer_data and manufacturer_data[12628].startswith(  # noqa: PLR2004
-                b"AC-6200"
-            ):
+            elif IAM_T1_MANUFACTURER_ID in manufacturer_data and manufacturer_data[
+                IAM_T1_MANUFACTURER_ID
+            ].startswith(b"AC-6200"):
                 # AC-6200
                 self._device_type = Model.IAM_T1
             elif (
-                msg_length == 17  # noqa: PLR2004
-                and 12884 in manufacturer_data  # noqa: PLR2004
-                and data[2] == 0x00  # MAC starts with 00:62
-                and data[3] == 0x62  # noqa: PLR2004
+                msg_length == SEVENTEEN_BYTE_MESSAGE_LENGTH
+                and IAM_T2_MANUFACTURER_ID in manufacturer_data
+                and data[2:4] == IAM_T2_MAC_PREFIX  # MAC starts with 00:62
             ):
                 # IAM-T2
                 self._device_type = Model.IAM_T2
