@@ -3694,3 +3694,37 @@ async def test_int_11p_b_poll_short_read_ignored() -> None:
     keys = {key.key for key in update.entity_values}
     assert "temperature_probe" not in keys
     assert "probe_battery" not in keys
+
+
+@pytest.mark.asyncio
+async def test_async_poll_without_gatt_decoder_emits_no_readings() -> None:
+    """Polling a model with no GATT decode path produces no probe readings.
+
+    Only the 18-byte, 9-byte and INT-11P-B models decode a connectable GATT
+    read; any other pollable model (here the 17-byte IAM-T2) falls through
+    ``async_poll`` without the INT-11P-B decoder running, so no probe values
+    are emitted.
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.IAM_T2)
+    parser.update(
+        make_bluetooth_service_info(
+            name="IAM-T2",
+            manufacturer_data={},
+            service_uuids=[],
+            address="00:62:00:00:00:01",
+            rssi=-55,
+            service_data={},
+            source="local",
+        )
+    )
+    read_gatt_char_mock = AsyncMock(return_value=b"\x00" * 17)
+    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="00:62:00:00:00:01", name="IAM-T2", details={})
+        )
+    keys = {key.key for key in update.entity_values}
+    assert "temperature_probe" not in keys
+    assert "temperature_ambient" not in keys
+    assert "probe_battery" not in keys
+    assert "case_battery" not in keys
