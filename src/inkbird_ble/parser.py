@@ -52,6 +52,7 @@ class Model(StrEnum):
     GENERIC_18 = "Generic 18 byte model"
     IAM_T1 = "IAM-T1"
     IAM_T2 = "IAM-T2"
+    IHT_2PB = "IHT-2PB"
 
 
 class ModelType(Enum):
@@ -73,6 +74,10 @@ class ModelInfo:
     notify_uuid: UUID | None
     use_local_name_for_device: bool
     parse_adv: bool
+    # Commands written after subscribing to notifications to make a device
+    # start streaming (each entry is ``(characteristic_uuid, payload)``). Most
+    # notify models stream unprompted, so this defaults to empty.
+    notify_init_writes: tuple[tuple[UUID, bytes], ...] = ()
 
 
 INKBIRD_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
@@ -108,6 +113,30 @@ IAM_T2_MANUFACTURER_ID = 12884
 
 # IAM-T2 advertises a payload whose MAC bytes start with 00:62.
 IAM_T2_MAC_PREFIX = b"\x00\x62"
+
+# IHT-2PB GATT support. This probe thermometer does not broadcast its readings;
+# it streams them over notifications on ``fff0/ffe4`` once two activation
+# commands are written. Protocol reverse-engineered by the community
+# (ebw44/ESPHome-Inkbird-ITH-2PB, derived from
+# sensor-stuff/inkbird-iht-2pb-to-mqtt) — not yet verified against hardware in
+# this library.
+IHT_2PB_SERVICE_UUID = UUID("0000ffe0-0000-1000-8000-00805f9b34fb")
+IHT_2PB_NOTIFY_UUID = UUID("0000ffe4-0000-1000-8000-00805f9b34fb")
+IHT_2PB_WRITE_UUID = UUID("0000ffe9-0000-1000-8000-00805f9b34fb")
+IHT_2PB_INIT_WRITES = (
+    (IHT_2PB_WRITE_UUID, b"\x55\xaa\x19\x01\x00\x19"),
+    # The second write targets the notify characteristic itself; the device
+    # rejects it ("does not allow writing") yet it is required to start the
+    # temperature stream, so the write is best-effort (errors are swallowed).
+    (IHT_2PB_NOTIFY_UUID, b"\x55\xaa\x1a\x01\x00\x1a"),
+)
+# Notify packets carry one probe each: a selector byte (2/4/6) maps to a probe
+# number, and the temperature is two bytes in an unusual base-255 encoding.
+IHT_2PB_MIN_NOTIFY_LEN = 6
+IHT_2PB_PROBE_SELECTORS = {0x02: 1, 0x04: 2, 0x06: 3}
+IHT_2PB_TEMP_BASE = 255
+IHT_2PB_NEG_HI = 254  # high byte >= this marks a sub-zero reading
+IHT_2PB_POS_MAX_HI = 11  # high byte <= this marks a valid positive reading
 
 MODEL_INFO = {
     Model.IBBQ_1: ModelInfo(
@@ -269,6 +298,21 @@ MODEL_INFO = {
         notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
+    ),
+    Model.IHT_2PB: ModelInfo(
+        name="IHT-2PB",
+        model_type=ModelType.SENSOR,
+        local_name="ink@iht-2pb",
+        # No usable advertisement payload — readings arrive over notifications.
+        # message_length=0 keeps it out of the adv length / poll dispatch sets.
+        message_length=0,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=IHT_2PB_SERVICE_UUID,
+        characteristic_uuid=None,
+        notify_uuid=IHT_2PB_NOTIFY_UUID,
+        use_local_name_for_device=False,
+        parse_adv=False,
+        notify_init_writes=IHT_2PB_INIT_WRITES,
     ),
 }
 
@@ -473,16 +517,28 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
         client.set_disconnected_callback(_resolve_disconnect_callback)
         await client.start_notify(notify_uuid, self._notify_callback)
+        for char_uuid, payload in dev_info.notify_init_writes:
+            # Some devices (e.g. IHT-2PB) only start streaming after an
+            # activation command is written. These writes are best-effort:
+            # at least one known device rejects the write yet still begins
+            # notifying, so a write error must not abort the session.
+            with contextlib.suppress(BleakError):
+                await client.write_gatt_char(char_uuid, payload, response=False)
         await disconnect_future  # wait for disconnect
 
     def _notify_callback(
         self, sender: BleakGATTCharacteristic, data: bytearray
     ) -> None:
-        """Callback for notifications."""
+        """Dispatch a notification to the handler for the current model."""
         _LOGGER.debug("Received notification from %s: %s", sender, data)
-        if not self._running or self._device_type != Model.IAM_T1:
+        if not self._running:
             return
-        # IAM_T1
+        handler = self._notify_dispatch.get(self._device_type)
+        if handler is not None:
+            handler(self, sender, data)
+
+    def _notify_iam_t1(self, sender: BleakGATTCharacteristic, data: bytearray) -> None:
+        """Parse an IAM-T1 notification."""
         if (
             len(data) == IAM_T1_STATE_NOTIFY_LENGTH
             and bytes(data[1:3]) == IAM_T1_NOTIFY_STATE_PREFIX
@@ -528,6 +584,51 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 len(data),
                 bytes(data[:3]),
             )
+
+    def _notify_iht_2pb(self, sender: BleakGATTCharacteristic, data: bytearray) -> None:
+        """Parse an IHT-2PB notification.
+
+        Each packet reports one probe: ``data[2]`` selects the probe (2/4/6 ->
+        probe 1/2/3) and ``data[4:6]`` is the temperature in a base-255
+        encoding (high byte <= 11 positive, >= 254 sub-zero; the 12-253 range
+        means the probe is unplugged and is skipped). Decoding follows the
+        community reference (ebw44/ESPHome-Inkbird-ITH-2PB).
+        """
+        if len(data) < IHT_2PB_MIN_NOTIFY_LEN:
+            return
+        probe_num = IHT_2PB_PROBE_SELECTORS.get(data[2])
+        if probe_num is None:
+            return
+        hi = data[4]
+        lo = data[5]
+        if hi >= IHT_2PB_NEG_HI:
+            temp = (
+                IHT_2PB_TEMP_BASE * (hi - IHT_2PB_TEMP_BASE) + (lo - IHT_2PB_TEMP_BASE)
+            ) / 10
+        elif hi <= IHT_2PB_POS_MAX_HI:
+            temp = (IHT_2PB_TEMP_BASE * hi + lo) / 10
+        else:
+            # Probe not plugged in; skip rather than reporting a bogus value.
+            return
+        _LOGGER.debug("IHT-2PB probe %d temperature: %s", probe_num, temp)
+        self.update_predefined_sensor(
+            SensorLibrary.TEMPERATURE__CELSIUS,
+            temp,
+            key=f"temperature_probe_{probe_num}",
+            name=f"Temperature Probe {probe_num}",
+        )
+        assert self._update_callback is not None
+        self._update_callback(self._finish_update())
+
+    _notify_dispatch: ClassVar[
+        dict[
+            Model | None,
+            Callable[
+                [INKBIRDBluetoothDeviceData, BleakGATTCharacteristic, bytearray],
+                None,
+            ],
+        ]
+    ]
 
     @property
     def device_type(self) -> Model | None:
@@ -576,6 +677,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
             ):
                 self._device_type = INKBIRD_NAMES[lower_name]
+            elif lower_name.startswith("ink@iht-2pb"):
+                # The IHT-2PB advertises as "Ink@IHT-2PB#<suffix>" and carries
+                # no usable payload; identify it by name prefix and let the
+                # notify flow (async_start) read its probes over GATT.
+                self._device_type = Model.IHT_2PB
             elif is_bbq(lower_name) and msg_length in BBQ_LENGTH_TO_TYPE:
                 self._device_type = BBQ_LENGTH_TO_TYPE[msg_length]
             elif (
@@ -806,4 +912,9 @@ INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
         SEVENTEEN_BYTE_SENSOR_MODELS,
         INKBIRDBluetoothDeviceData._update_seventeen_byte_model,  # noqa: SLF001
     ),
+}
+
+INKBIRDBluetoothDeviceData._notify_dispatch = {  # noqa: SLF001
+    Model.IAM_T1: INKBIRDBluetoothDeviceData._notify_iam_t1,  # noqa: SLF001
+    Model.IHT_2PB: INKBIRDBluetoothDeviceData._notify_iht_2pb,  # noqa: SLF001
 }

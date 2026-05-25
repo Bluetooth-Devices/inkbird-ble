@@ -20,7 +20,12 @@ from sensor_state_data import (
     Units,
 )
 
-from inkbird_ble.parser import INKBIRDBluetoothDeviceData, Model
+from inkbird_ble.parser import (
+    IHT_2PB_NOTIFY_UUID,
+    IHT_2PB_WRITE_UUID,
+    INKBIRDBluetoothDeviceData,
+    Model,
+)
 
 from . import async_fire_time_changed
 
@@ -3320,3 +3325,245 @@ def test_poll_needed_recency_uses_service_info_time() -> None:
         tx_power=0,
     )
     assert parser.poll_needed(stale, None) is True
+
+
+def test_iht_2pb_detected_from_advertisement() -> None:
+    """The IHT-2PB is identified by name prefix and uses the notify flow."""
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = make_bluetooth_service_info(
+        name="Ink@IHT-2PB#c4b",
+        manufacturer_data={18505: b"2PB6200a1359c4b"},
+        service_uuids=[],
+        address="62:00:A1:35:9C:4B",
+        rssi=-33,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.device_type == Model.IHT_2PB
+    assert parser.supported(service_info) is True
+    assert parser.uses_notify is True
+    # Notify-only model: it must not be marked as needing a readable poll.
+    assert parser.poll_needed(service_info, None) is False
+
+
+@pytest.mark.asyncio
+async def test_notify_iht_2pb_probes() -> None:
+    """Each notify packet reports one probe; sub-zero readings are signed."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IHT_2PB, {}, _update_callback, None)
+    service_info = make_bluetooth_service_info(
+        name="Ink@IHT-2PB#c4b",
+        manufacturer_data={18505: b"2PB6200a1359c4b"},
+        service_uuids=[],
+        address="62:00:A1:35:9C:4B",
+        rssi=-33,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.uses_notify is True
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        # probe 1 -> 24.5C, probe 2 -> 100.0C, probe 3 -> -1.0C (sub-zero)
+        callback(uuid, b"\x55\xaa\x02\x00\x00\xf5")
+        callback(uuid, b"\x55\xaa\x04\x00\x03\xeb")
+        callback(uuid, b"\x55\xaa\x06\x00\xff\xf5")
+
+    write_mock = AsyncMock()
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        write_gatt_char=write_mock,
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:35:9C:4B",
+                name="Ink@IHT-2PB#c4b",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    # The accumulated final update carries all three probes.
+    values = {
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] == 24.5
+    assert values["temperature_probe_2"] == 100.0
+    assert values["temperature_probe_3"] == -1.0
+
+    # Both activation commands were written after subscribing.
+    written = {
+        (call.args[0], bytes(call.args[1])) for call in write_mock.await_args_list
+    }
+    assert (IHT_2PB_WRITE_UUID, b"\x55\xaa\x19\x01\x00\x19") in written
+    assert (IHT_2PB_NOTIFY_UUID, b"\x55\xaa\x1a\x01\x00\x1a") in written
+
+
+@pytest.mark.asyncio
+async def test_notify_iht_2pb_skips_invalid_packets() -> None:
+    """Disconnected probes, unknown selectors and short packets are ignored."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IHT_2PB, {}, _update_callback, None)
+    service_info = make_bluetooth_service_info(
+        name="Ink@IHT-2PB#c4b",
+        manufacturer_data={18505: b"2PB6200a1359c4b"},
+        service_uuids=[],
+        address="62:00:A1:35:9C:4B",
+        rssi=-33,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, b"\x55\xaa\x02\x00\x64\x00")  # hi=100 -> unplugged dead zone
+        callback(uuid, b"\x55\xaa\x03\x00\x00\xf5")  # selector 3 -> unknown
+        callback(uuid, b"\x55\xaa")  # too short
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        write_gatt_char=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:35:9C:4B",
+                name="Ink@IHT-2PB#c4b",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    # No valid probe packet -> the callback never emitted an update.
+    assert updates == []
+
+
+@pytest.mark.asyncio
+async def test_notify_iht_2pb_write_error_is_swallowed() -> None:
+    """A rejected activation write must not abort the notify session."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IHT_2PB, {}, _update_callback, None)
+    service_info = make_bluetooth_service_info(
+        name="Ink@IHT-2PB#c4b",
+        manufacturer_data={18505: b"2PB6200a1359c4b"},
+        service_uuids=[],
+        address="62:00:A1:35:9C:4B",
+        rssi=-33,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, b"\x55\xaa\x02\x00\x00\xf5")  # probe 1 -> 24.5C
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        write_gatt_char=AsyncMock(side_effect=BleakError("does not allow writing")),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:35:9C:4B",
+                name="Ink@IHT-2PB#c4b",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    values = {
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] == 24.5
+
+
+@pytest.mark.asyncio
+async def test_notify_iht_2pb_ignored_after_stop() -> None:
+    """A notification delivered after the session is stopped is ignored."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IHT_2PB, {}, _update_callback, None)
+    service_info = make_bluetooth_service_info(
+        name="Ink@IHT-2PB#c4b",
+        manufacturer_data={18505: b"2PB6200a1359c4b"},
+        service_uuids=[],
+        address="62:00:A1:35:9C:4B",
+        rssi=-33,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+
+    captured: list[Callable[[UUID, bytes], None]] = []
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        captured.append(callback)
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        write_gatt_char=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:35:9C:4B",
+                name="Ink@IHT-2PB#c4b",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    # Once the session has stopped, a late notification must be a no-op.
+    captured[0](IHT_2PB_NOTIFY_UUID, b"\x55\xaa\x02\x00\x00\xf5")
+    assert updates == []
+
+
+def test_notify_callback_drops_model_without_handler() -> None:
+    """A notification for a model with no notify handler is dropped, not raised."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    # IAM-T2 is a sensor-only model with no entry in the notify dispatch table,
+    # so a stray notification must be ignored rather than raising.
+    parser = INKBIRDBluetoothDeviceData(Model.IAM_T2, {}, _update_callback, None)
+    parser._notify_callback(MagicMock(), bytearray(b"\x55\xaa\x02\x00\x00\xf5"))  # noqa: SLF001
+    assert updates == []
