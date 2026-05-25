@@ -537,9 +537,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if handler is not None:
             handler(self, sender, data)
 
-    def _notify_iam_t1(
-        self, sender: BleakGATTCharacteristic, data: bytearray
-    ) -> None:
+    def _notify_iam_t1(self, sender: BleakGATTCharacteristic, data: bytearray) -> None:
         """Parse an IAM-T1 notification."""
         if (
             len(data) == IAM_T1_STATE_NOTIFY_LENGTH
@@ -587,9 +585,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 bytes(data[:3]),
             )
 
-    def _notify_iht_2pb(
-        self, sender: BleakGATTCharacteristic, data: bytearray
-    ) -> None:
+    def _notify_iht_2pb(self, sender: BleakGATTCharacteristic, data: bytearray) -> None:
         """Parse an IHT-2PB notification.
 
         Each packet reports one probe: ``data[2]`` selects the probe (2/4/6 ->

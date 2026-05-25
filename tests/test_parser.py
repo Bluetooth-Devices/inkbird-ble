@@ -3396,8 +3396,7 @@ async def test_notify_iht_2pb_probes() -> None:
 
     # The accumulated final update carries all three probes.
     values = {
-        key.key: value.native_value
-        for key, value in updates[-1].entity_values.items()
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
     }
     assert values["temperature_probe_1"] == 24.5
     assert values["temperature_probe_2"] == 100.0
@@ -3502,7 +3501,6 @@ async def test_notify_iht_2pb_write_error_is_swallowed() -> None:
         await parser.async_stop()
 
     values = {
-        key.key: value.native_value
-        for key, value in updates[-1].entity_values.items()
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
     }
     assert values["temperature_probe_1"] == 24.5
