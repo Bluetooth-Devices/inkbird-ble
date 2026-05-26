@@ -484,6 +484,18 @@ BBQ_PROBE_NOT_CONNECTED = frozenset((0xFFFF, -1))
 # the sensor history. See https://github.com/Bluetooth-Devices/inkbird-ble/issues/141
 MAX_PLAUSIBLE_HUMIDITY = 100.0
 
+# Companion plausibility ceiling for the IAM-T1 notify path. Its protocol
+# encodes temperature as an unsigned 16-bit value plus a separate sign nibble,
+# so a garbage ``0xFFFF`` field with ``sign == 0`` decodes to 6553.5 °C — the
+# same wraparound shape as the #155 / #188 / #193 advertisement family, which
+# the signed advertisement parsers now block at the source. Notify cannot
+# switch to signed parsing without breaking the sign-nibble protocol, so the
+# guard runs here instead: any decoded reading whose absolute value exceeds
+# this ceiling marks a corrupt packet and is dropped. The ceiling matches the
+# invariant the temperature boundary-net test enforces against the
+# advertisement parsers (see ``test_adv_temperature_boundary_invariant``).
+MAX_PLAUSIBLE_TEMPERATURE_CELSIUS = 200.0
+
 
 def convert_temperature(temp: float) -> float:
     """Temperature converter.
@@ -627,6 +639,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             if self._device_data.get("temp_unit") == Units.TEMP_FAHRENHEIT:
                 # Convert to Celsius
                 signed_temp = round((signed_temp - 32) * 5 / 9, 2)
+            if not self._is_temperature_plausible(signed_temp):
+                # Temperature here is unsigned 16-bit + a separate sign
+                # nibble, so a garbage ``0xFFFF`` field decodes to ~6553 °C
+                # (or ~-6553 with the sign bit set) — the same wraparound
+                # shape the signed advertisement parsers now block at the
+                # source. Treat it as a corrupt notification and drop the
+                # whole packet rather than publish any of its fields.
+                return
             self.update_predefined_sensor(
                 SensorLibrary.TEMPERATURE__CELSIUS, signed_temp
             )
@@ -984,6 +1004,26 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 "Ignoring corrupt reading from %s: humidity %.1f%% exceeds 100%%",
                 self.name,
                 humidity,
+            )
+            return False
+        return True
+
+    def _is_temperature_plausible(self, temperature_c: float) -> bool:
+        """Return ``False`` for a temperature outside the plausible Celsius range.
+
+        Used by decode paths whose protocol cannot be made signed at the
+        source (currently only the IAM-T1 sign-nibble notify packet). A
+        garbage 16-bit field there decodes to ~6553 °C, the same wraparound
+        the signed advertisement parsers now block — this guard catches it on
+        the notify side. Callers drop the whole packet rather than publish a
+        temperature outside ``MAX_PLAUSIBLE_TEMPERATURE_CELSIUS``.
+        """
+        if abs(temperature_c) > MAX_PLAUSIBLE_TEMPERATURE_CELSIUS:
+            _LOGGER.debug(
+                "Ignoring corrupt reading from %s: temperature %.1f °C "
+                "exceeds plausible range",
+                self.name,
+                temperature_c,
             )
             return False
         return True

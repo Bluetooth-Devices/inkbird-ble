@@ -2196,6 +2196,69 @@ async def test_notify_iam_t1_c() -> None:
 
 
 @pytest.mark.asyncio
+async def test_notify_iam_t1_corrupt_temperature_dropped() -> None:
+    """A corrupt IAM-T1 notification (|temperature| > 200 °C) is dropped.
+
+    The IAM-T1 notify payload encodes temperature as an unsigned 16-bit value
+    plus a separate sign nibble, so a garbage ``0xFFFF`` temperature field
+    with ``sign == 0`` decodes to 6553.5 °C — the same wraparound shape the
+    signed advertisement parsers block at the source (#155 / #188 / #193).
+    Notify cannot switch to signed parsing without breaking the protocol, so
+    the implausible-temperature guard catches it on the notify side and
+    drops the whole packet rather than publishing any of its fields.
+    """
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    def _data_callback(data: dict[str, Any]) -> None:
+        """Callback for data updates."""
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IAM_T1, {}, _update_callback, _data_callback
+    )
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    disconnect_mock = AsyncMock()
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        # Unit-setting packet (Celsius): low nibble of data[10] = 0 -> Celsius.
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x00\x10")
+        # Data packet: sign nibble 0, temp bytes ff ff (-> 6553.5 °C), but
+        # humidity 01 f4 (-> 50.0%) is perfectly plausible. The temperature
+        # guard must drop the whole packet rather than publish a bogus
+        # 6553.5 °C reading alongside the valid humidity.
+        callback(uuid, b"U\xaa\x01\x10\x00\xff\xff\x01\xf4\x04M\x03\xfe\x01\x00A")
+
+    mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:3C:AE:7B",
+                name="Ink@IAM-T1",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    # The corrupt-temperature packet produced no update callback at all.
+    assert updates == []
+
+
+@pytest.mark.asyncio
 async def test_notify_iam_t1_corrupt_humidity_dropped() -> None:
     """A corrupt IAM-T1 notification (humidity > 100%) is dropped (#141 family)."""
     updates: list[SensorUpdate] = []
