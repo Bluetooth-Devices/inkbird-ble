@@ -12,7 +12,7 @@ from sensor_state_data import (
     Units,
 )
 
-from .parser import INKBIRDBluetoothDeviceData
+from .parser import INKBIRDBluetoothDeviceData, Model
 
 __version__ = "1.4.4"
 
@@ -20,6 +20,7 @@ __all__ = [
     "DeviceClass",
     "DeviceKey",
     "INKBIRDBluetoothDeviceData",
+    "Model",
     "SensorDescription",
     "SensorDeviceInfo",
     "SensorUpdate",
