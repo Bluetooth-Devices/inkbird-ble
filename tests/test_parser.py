@@ -23,7 +23,9 @@ from sensor_state_data import (
 from inkbird_ble.parser import (
     IHT_2PB_NOTIFY_UUID,
     IHT_2PB_WRITE_UUID,
+    MAX_PLAUSIBLE_HUMIDITY,
     MIN_POLL_INTERVAL,
+    SENSOR_MODELS,
     INKBIRDBluetoothDeviceData,
     Model,
 )
@@ -3939,3 +3941,93 @@ async def test_async_poll_without_gatt_decoder_emits_no_readings() -> None:
     assert "temperature_ambient" not in keys
     assert "probe_battery" not in keys
     assert "case_battery" not in keys
+
+
+# ---------------------------------------------------------------------------
+# Systematic corrupt-input boundary net (#141 family).
+#
+# Every advertisement temperature/humidity field was historically parsed
+# unsigned, so a garbage ``0xFFFF`` field wrapped into a physically impossible
+# reading (~6553% RH / ~6553 C). Each occurrence was fixed reactively in a
+# different release (#141, #155, #188, #193, #209) and the next path bit again.
+#
+# This table feeds the disconnect/garbage sentinel into the humidity field of
+# *every* advertisement sensor model and asserts the invariant the fixes were
+# really enforcing: an impossible humidity is never published. The companion
+# meta-test below ties the table to ``SENSOR_MODELS`` so a new advertisement
+# parser cannot be added without declaring its corrupt-input expectation here.
+# ---------------------------------------------------------------------------
+
+# A valid 18-byte payload shared by the name-detected 18-byte models and the
+# manufacturer-id-detected GENERIC_18 (humidity at mfr bytes [6:8] = 0x0190 ->
+# 40.0%; trailing zeros keep GENERIC_18 detection happy).
+_VALID_18_BYTE = b"\x08\x12\x00^\x00\x00\x90\x01d\x00d\x08\x00\x00\x00\x00"
+
+# model -> (advertised name, manufacturer id, valid payload, humidity byte slice)
+_ADV_HUMIDITY_BOUNDARY_CASES: dict[Model, tuple[str, int, bytes, slice]] = {
+    Model.IBS_TH: ("sps", 2044, b"\xc7\x12\x00\xc8=V\x06", slice(0, 2)),
+    Model.IBS_TH2: ("tps", 2248, b"\x84\x14\x00\x88\x99d\x06", slice(0, 2)),
+    Model.ITH_11_B: ("ith-11-b", 9289, _VALID_18_BYTE, slice(6, 8)),
+    Model.ITH_13_B: ("ith-13-b", 9289, _VALID_18_BYTE, slice(6, 8)),
+    Model.ITH_21_B: ("ith-21-b", 9289, _VALID_18_BYTE, slice(6, 8)),
+    Model.IBS_P02B: ("ibs-p02b", 9289, _VALID_18_BYTE, slice(6, 8)),
+    Model.GENERIC_18: ("unknown", 9289, _VALID_18_BYTE, slice(6, 8)),
+    Model.IAM_T2: (
+        "ink@iam-t2",
+        12884,
+        bytes.fromhex("006200a13e29bed4ffce01ee025391"),
+        slice(10, 12),
+    ),
+}
+
+_HUMIDITY_KEY = DeviceKey(key="humidity", device_id=None)
+
+
+def _boundary_service_info(name: str, mfr_id: int, payload: bytes):
+    return make_bluetooth_service_info(
+        name=name,
+        manufacturer_data={mfr_id: payload},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+
+
+@pytest.mark.parametrize("model", list(_ADV_HUMIDITY_BOUNDARY_CASES))
+def test_adv_humidity_boundary_invariant(model: Model) -> None:
+    """No advertisement sensor model ever publishes an impossible humidity.
+
+    The valid payload decodes to a plausible humidity; the same payload with a
+    garbage ``0xFFFF`` humidity field publishes none (the corrupt packet is
+    dropped). Guards the whole #141/#155/#188/#193/#209 family at once.
+    """
+    name, mfr_id, payload, humidity_slice = _ADV_HUMIDITY_BOUNDARY_CASES[model]
+
+    # Baseline: the model is detected and reports a physically plausible value.
+    valid = INKBIRDBluetoothDeviceData()
+    valid_result = valid.update(_boundary_service_info(name, mfr_id, payload))
+    assert valid.device_type is model
+    valid_humidity = valid_result.entity_values.get(_HUMIDITY_KEY)
+    assert valid_humidity is not None
+    assert 0 <= valid_humidity.native_value <= MAX_PLAUSIBLE_HUMIDITY
+
+    # Corrupt only the humidity field; detection bytes are untouched.
+    corrupt_payload = bytearray(payload)
+    corrupt_payload[humidity_slice] = b"\xff\xff"
+    corrupt = INKBIRDBluetoothDeviceData()
+    corrupt_result = corrupt.update(
+        _boundary_service_info(name, mfr_id, bytes(corrupt_payload))
+    )
+    assert corrupt.device_type is model
+    assert corrupt_result.entity_values.get(_HUMIDITY_KEY) is None
+
+
+def test_adv_humidity_boundary_covers_every_sensor_model() -> None:
+    """Every advertisement sensor model must declare a corrupt-input case.
+
+    Forces a future device parser added to ``SENSOR_MODELS`` to also add a
+    boundary entry, so the unsigned-humidity bug family cannot silently regrow.
+    """
+    assert set(_ADV_HUMIDITY_BOUNDARY_CASES) == SENSOR_MODELS
