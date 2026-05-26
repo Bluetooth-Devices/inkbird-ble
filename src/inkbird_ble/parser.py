@@ -510,6 +510,21 @@ MAX_PLAUSIBLE_AMBIENT_TEMPERATURE_CELSIUS = 200.0
 # marks a corrupt packet, so the whole reading is dropped.
 MAX_PLAUSIBLE_BATTERY_PERCENTAGE = 100
 
+# CO2 and atmospheric pressure ceilings for the IAM-T1 notify packet. Both
+# fields are decoded as unsigned 16-bit values from raw bytes (data[9:11] and
+# data[11:13] respectively); a garbage ``0xFFFF`` field surfaces as 65535 ppm
+# or 65535 hPa, the same corrupt-byte shape as the #141 humidity and #155
+# temperature families. The ceilings are deliberately lenient — far above any
+# real-world reading the sensor can produce — so the guard only catches the
+# obvious wraparound, not edge readings near the sensor's range. Indoor-air
+# CO2 sensors typically max out around 5000-10000 ppm; industrial range tops
+# out near 40000 ppm. Atmospheric pressure ranges from ~870 hPa (cyclone) to
+# ~1085 hPa (high-pressure system); 1200 hPa is a generous ceiling. On any
+# implausible value the whole packet is dropped rather than publishing a
+# bogus reading alongside potentially-corrupt temperature/humidity fields.
+MAX_PLAUSIBLE_CO2_PPM = 40000
+MAX_PLAUSIBLE_PRESSURE_HPA = 1200
+
 
 def convert_temperature(temp: float) -> float:
     """Temperature converter.
@@ -645,6 +660,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             temp = data[5] << 8 | data[6]
             signed_temp = (temp if sign == 0 else -temp) / 10
             humidity = (data[7] << 8 | data[8]) / 10
+            co2 = data[9] << 8 | data[10]
+            pressure = data[11] << 8 | data[12]
             if not self._is_humidity_plausible(humidity):
                 # A garbage humidity field marks a corrupt notification; drop
                 # the whole packet rather than publish any of its fields (#141).
@@ -661,17 +678,25 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 # source. Treat it as a corrupt notification and drop the
                 # whole packet rather than publish any of its fields.
                 return
+            if not self._is_co2_plausible(co2) or not self._is_pressure_plausible(
+                pressure
+            ):
+                # CO2 and pressure are unsigned 16-bit fields, so a garbage
+                # 0xFFFF surfaces as 65535 ppm / 65535 hPa — the same
+                # corrupt-byte shape as the temperature/humidity guards
+                # above. Drop the whole packet rather than publish a bogus
+                # CO2/pressure reading alongside a temperature/humidity that
+                # happens to land in a plausible range by chance.
+                return
             self.update_predefined_sensor(
                 SensorLibrary.TEMPERATURE__CELSIUS, signed_temp
             )
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
             self.update_predefined_sensor(
                 SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION,
-                data[9] << 8 | data[10],
+                co2,
             )
-            self.update_predefined_sensor(
-                SensorLibrary.PRESSURE__HPA, data[11] << 8 | data[12]
-            )
+            self.update_predefined_sensor(SensorLibrary.PRESSURE__HPA, pressure)
             if TYPE_CHECKING:
                 assert self._update_callback is not None
             self._update_callback(self._finish_update())
@@ -1047,6 +1072,46 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 "exceeds plausible range",
                 self.name,
                 temperature_c,
+            )
+            return False
+        return True
+
+    def _is_co2_plausible(self, co2_ppm: int) -> bool:
+        """Return ``False`` for a CO2 reading outside the plausible range.
+
+        Scoped to the IAM-T1 notify path, whose protocol encodes CO2 as an
+        unsigned 16-bit field. A garbage ``0xFFFF`` decodes to 65535 ppm —
+        the same wraparound shape as the #141 humidity / #155 temperature
+        families. Callers drop the whole packet rather than publish a value
+        above ``MAX_PLAUSIBLE_CO2_PPM`` (40000 ppm — well above any indoor
+        or industrial sensor's real range).
+        """
+        if co2_ppm > MAX_PLAUSIBLE_CO2_PPM:
+            _LOGGER.debug(
+                "Ignoring corrupt reading from %s: CO2 %d ppm exceeds plausible range",
+                self.name,
+                co2_ppm,
+            )
+            return False
+        return True
+
+    def _is_pressure_plausible(self, pressure_hpa: int) -> bool:
+        """Return ``False`` for atmospheric pressure outside the plausible range.
+
+        Scoped to the IAM-T1 notify path, whose protocol encodes pressure as
+        an unsigned 16-bit field. A garbage ``0xFFFF`` decodes to 65535 hPa —
+        the same corrupt-byte shape as the CO2 / humidity / temperature
+        guards. Real atmospheric pressure spans roughly 870-1085 hPa;
+        ``MAX_PLAUSIBLE_PRESSURE_HPA`` (1200 hPa) is a generous ceiling that
+        still catches the wraparound. Callers drop the whole packet on an
+        implausible value.
+        """
+        if pressure_hpa > MAX_PLAUSIBLE_PRESSURE_HPA:
+            _LOGGER.debug(
+                "Ignoring corrupt reading from %s: pressure %d hPa "
+                "exceeds plausible range",
+                self.name,
+                pressure_hpa,
             )
             return False
         return True

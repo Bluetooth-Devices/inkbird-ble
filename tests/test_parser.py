@@ -2332,6 +2332,124 @@ async def test_notify_iam_t1_corrupt_humidity_dropped() -> None:
 
 
 @pytest.mark.asyncio
+async def test_notify_iam_t1_corrupt_co2_dropped() -> None:
+    """A corrupt IAM-T1 notification (CO2 > 40000 ppm) is dropped.
+
+    CO2 is an unsigned 16-bit field in the IAM-T1 notify protocol, so a
+    garbage ``0xFFFF`` decodes to 65535 ppm — the same corrupt-byte shape
+    as the temperature/humidity guards. Temperature and humidity in this
+    packet are valid (23.2 °C, 50%), so only the CO2-specific guard can
+    catch this case; without it the bogus 65535 ppm reading would publish
+    alongside the otherwise plausible fields.
+    """
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    def _data_callback(data: dict[str, Any]) -> None:
+        """Callback for data updates."""
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IAM_T1, {}, _update_callback, _data_callback
+    )
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    disconnect_mock = AsyncMock()
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        # Unit-setting packet (no update callback)
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x00\x10")
+        # Data packet: valid temp/humidity (23.2 °C, 50%) but CO2 bytes
+        # ff ff -> 65535 ppm. The packet must drop whole rather than
+        # publishing a bogus CO2 alongside the plausible fields.
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe8\x01\xf4\xff\xff\x03\xfe\x01\x00A")
+
+    mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:3C:AE:7B",
+                name="Ink@IAM-T1",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    assert updates == []
+
+
+@pytest.mark.asyncio
+async def test_notify_iam_t1_corrupt_pressure_dropped() -> None:
+    """A corrupt IAM-T1 notification (pressure > 1200 hPa) is dropped.
+
+    Pressure is an unsigned 16-bit field in the IAM-T1 notify protocol, so
+    a garbage ``0xFFFF`` decodes to 65535 hPa — far above any plausible
+    atmospheric reading. With the other fields valid (temp 23.2 °C,
+    humidity 50%, CO2 1101 ppm), only the pressure-specific guard blocks
+    this corruption.
+    """
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    def _data_callback(data: dict[str, Any]) -> None:
+        """Callback for data updates."""
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IAM_T1, {}, _update_callback, _data_callback
+    )
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    disconnect_mock = AsyncMock()
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        # Unit-setting packet (no update callback)
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x00\x10")
+        # Data packet: valid temp/humidity/CO2 but pressure bytes ff ff
+        # -> 65535 hPa. The packet must drop whole.
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe8\x01\xf4\x04M\xff\xff\x01\x00A")
+
+    mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:3C:AE:7B",
+                name="Ink@IAM-T1",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    assert updates == []
+
+
+@pytest.mark.asyncio
 async def test_iam_t1_multiple_updates_with_broken_packet() -> None:
     """Test IAM-T1 handling multiple updates from issue #119.
 
