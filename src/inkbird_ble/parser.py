@@ -948,12 +948,20 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if TYPE_CHECKING:
             assert self._device_type is not None
         temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
-        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 100)
-        # Only some TH2 models have humidity
-        if self._device_type == Model.IBS_TH or (
+        # Only some models report humidity: IBS-TH always, IBS-TH2 when non-zero.
+        reports_humidity = self._device_type == Model.IBS_TH or (
             self._device_type == Model.IBS_TH2 and hum != 0
-        ):
-            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, hum / 100)
+        )
+        humidity = hum / 100
+        if reports_humidity and not self._is_humidity_plausible(humidity):
+            # Humidity is parsed unsigned (``<hH``); a garbage 0xFFFF field
+            # surfaces as 655.35%. Like the 18-byte and IAM paths, treat an
+            # impossible humidity as a corrupt packet and drop the whole
+            # reading rather than publish any of its fields (#141).
+            return
+        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 100)
+        if reports_humidity:
+            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
         if bat is not None:
             # Battery is only available in the advertisement data
             # for some models
