@@ -2470,6 +2470,82 @@ async def test_reconnect_iam_t1_f() -> None:
     assert last_update is not None
 
 
+@pytest.mark.asyncio
+async def test_notify_iam_t1_connection_failure_retries() -> None:
+    """A failed notify connection is logged and retried after the backoff.
+
+    When every connection attempt raises (``async_connect_action`` propagates a
+    ``BleakError``), ``_async_start_notify`` must swallow the error, wait, and
+    reconnect on the next loop iteration rather than letting the notify task
+    die. The first connection here fails; after the 5s backoff the retry
+    succeeds and the device starts streaming.
+    """
+    last_update: SensorUpdate | None = None
+
+    def _update_callback(update: SensorUpdate) -> None:
+        nonlocal last_update
+        last_update = update
+
+    def _data_callback(data: dict[str, Any]) -> None:
+        """Callback for data updates."""
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IAM_T1, {}, _update_callback, _data_callback
+    )
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.uses_notify
+
+    disconnect_mock = AsyncMock()
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x01\x11")
+        callback(uuid, b"U\xaa\x01\x10\x10\x03\x0b\x01\xd6\x02\xe3\x03\xf1\x01\x00\xcf")
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        disconnect=disconnect_mock,
+        set_disconnected_callback=MagicMock(),
+    )
+
+    connect_calls = 0
+
+    async def establish_mock(*_args: Any, **_kwargs: Any) -> MagicMock:
+        nonlocal connect_calls
+        connect_calls += 1
+        if connect_calls == 1:
+            msg = "connection failed"
+            raise BleakError(msg)
+        return mock_client
+
+    with patch("inkbird_ble.parser.establish_connection", establish_mock):
+        await parser.async_start(
+            service_info,
+            BLEDevice(address="62:00:A1:3C:AE:7B", name="Ink@IAM-T1", details={}),
+        )
+        await asyncio.sleep(0)
+        # First attempt failed: the error was logged, nothing delivered yet.
+        assert connect_calls == 1
+        assert last_update is None
+        # Advance past the 5s backoff so the loop reconnects and succeeds.
+        async_fire_time_changed(datetime.now(UTC) + timedelta(seconds=5))
+        await asyncio.sleep(0)
+        assert connect_calls == 2
+        await parser.async_stop()
+
+    assert last_update is not None
+
+
 def test_IBS_P02B():
     parser = INKBIRDBluetoothDeviceData()
     service_info = make_bluetooth_service_info(
