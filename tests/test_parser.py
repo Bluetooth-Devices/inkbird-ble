@@ -20,6 +20,9 @@ from sensor_state_data import (
     Units,
 )
 
+import inkbird_ble
+from inkbird_ble import INKBIRDBluetoothDeviceData as PublicData
+from inkbird_ble import Model as PublicModel
 from inkbird_ble.parser import (
     IHT_2PB_NOTIFY_UUID,
     IHT_2PB_WRITE_UUID,
@@ -40,6 +43,23 @@ if TYPE_CHECKING:
 def test_can_create():
     parser = INKBIRDBluetoothDeviceData()
     assert parser.name == "Unknown"
+
+
+def test_model_is_public_export():
+    """``Model`` is part of the documented public API.
+
+    The usage docs reference ``Model.IBS_TH`` and the constructor accepts a
+    ``Model | str | None`` device_type, so ``Model`` must be importable from
+    the package root — not only from the private ``inkbird_ble.parser`` path.
+    """
+    assert PublicModel is Model
+    assert "Model" in inkbird_ble.__all__
+    assert PublicModel.IBS_TH.value == "IBS-TH"
+
+
+def test_constructor_accepts_publicly_exported_model():
+    parser = PublicData(PublicModel.IBS_TH)
+    assert parser.device_type is PublicModel.IBS_TH
 
 
 def make_bluetooth_service_info(  # noqa: PLR0913
