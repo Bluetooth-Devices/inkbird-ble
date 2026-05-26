@@ -610,6 +610,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             sign = data[4] & 0xF
             temp = data[5] << 8 | data[6]
             signed_temp = (temp if sign == 0 else -temp) / 10
+            humidity = (data[7] << 8 | data[8]) / 10
+            if not self._is_humidity_plausible(humidity):
+                # A garbage humidity field marks a corrupt notification; drop
+                # the whole packet rather than publish any of its fields (#141).
+                return
             _LOGGER.debug("IAM-T1 temperature: %s (%s)", signed_temp, self._device_data)
             if self._device_data.get("temp_unit") == Units.TEMP_FAHRENHEIT:
                 # Convert to Celsius
@@ -617,9 +622,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self.update_predefined_sensor(
                 SensorLibrary.TEMPERATURE__CELSIUS, signed_temp
             )
-            self.update_predefined_sensor(
-                SensorLibrary.HUMIDITY__PERCENTAGE, (data[7] << 8 | data[8]) / 10
-            )
+            self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
             self.update_predefined_sensor(
                 SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION,
                 data[9] << 8 | data[10],
@@ -932,6 +935,23 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Update the sensor values for a 18 byte model."""
         self._update_eighteen_byte_model_from_raw(data[6:10], data[10])
 
+    def _is_humidity_plausible(self, humidity: float) -> bool:
+        """Return ``False`` for a physically impossible humidity reading.
+
+        Relative humidity cannot exceed 100%; a higher value (e.g. a garbage
+        ``0xFFFF`` field -> 6553.5%) marks a corrupt packet. Callers drop the
+        whole reading rather than let it pollute the sensor history. Shared by
+        every humidity-bearing decode path. See #141.
+        """
+        if humidity > MAX_PLAUSIBLE_HUMIDITY:
+            _LOGGER.debug(
+                "Ignoring corrupt reading from %s: humidity %.1f%% exceeds 100%%",
+                self.name,
+                humidity,
+            )
+            return False
+        return True
+
     def _update_eighteen_byte_model_from_raw(
         self, temp_hum_bytes: bytes, bat: int
     ) -> None:
@@ -940,14 +960,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             assert self._device_type is not None
         temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
         humidity = hum / 10
-        if humidity > MAX_PLAUSIBLE_HUMIDITY:
-            # Corrupt advertisement (humidity field garbage, temperature 0).
-            # Drop the whole reading so it does not spoil the history. See #141.
-            _LOGGER.debug(
-                "Ignoring corrupt reading from %s: humidity %.1f%% exceeds 100%%",
-                self.name,
-                humidity,
-            )
+        if not self._is_humidity_plausible(humidity):
             return
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
@@ -981,6 +994,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # Battery is intentionally not reported: its encoding is unconfirmed
         # (one device reported a raw value of 145 for 75%), so it is omitted
         # rather than published incorrectly.
+
+        if not self._is_humidity_plausible(humidity):
+            # A garbage humidity field marks a corrupt advertisement; drop the
+            # whole reading rather than publish any of its fields (#141).
+            return
 
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temperature_c)
         self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)

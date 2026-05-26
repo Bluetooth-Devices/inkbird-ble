@@ -2194,6 +2194,58 @@ async def test_notify_iam_t1_c() -> None:
 
 
 @pytest.mark.asyncio
+async def test_notify_iam_t1_corrupt_humidity_dropped() -> None:
+    """A corrupt IAM-T1 notification (humidity > 100%) is dropped (#141 family)."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    def _data_callback(data: dict[str, Any]) -> None:
+        """Callback for data updates."""
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IAM_T1, {}, _update_callback, _data_callback
+    )
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    disconnect_mock = AsyncMock()
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        # Unit-setting packet (no update callback)
+        callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x00\x10")
+        # Data packet with humidity bytes ff ff -> 6553.5%; must be dropped
+        # whole rather than publishing a temperature from a corrupt packet.
+        callback(uuid, b"U\xaa\x01\x10\x00\x00\xe8\xff\xff\x04M\x03\xfe\x01\x00A")
+
+    mock_client = MagicMock(start_notify=start_notify_mock, disconnect=disconnect_mock)
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:3C:AE:7B",
+                name="Ink@IAM-T1",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    # The corrupt packet produced no update callback at all.
+    assert updates == []
+
+
+@pytest.mark.asyncio
 async def test_iam_t1_multiple_updates_with_broken_packet() -> None:
     """Test IAM-T1 handling multiple updates from issue #119.
 
@@ -3242,6 +3294,28 @@ def test_iam_t2_sub_zero_fahrenheit() -> None:
         )
         == -20.0
     )
+
+
+def test_iam_t2_corrupt_humidity_dropped() -> None:
+    """A corrupt IAM-T2 reading (humidity > 100%) is dropped (#141 family)."""
+    parser = INKBIRDBluetoothDeviceData()
+    # status d4 = Celsius, temp ffce = -5.0°C (valid), humidity ffff = 6553.5%
+    # (garbage). The impossible humidity must drop the whole advertisement.
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e29bed4ffceffff025391")},
+        service_uuids=[],
+        address="62:00:A1:3E:29:BE",
+        rssi=-65,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    result = parser.update(service_info)
+    assert parser.device_type == Model.IAM_T2
+    # Only the always-present signal strength survives; no sensor values leak.
+    assert set(result.entity_values) == {
+        DeviceKey(key="signal_strength", device_id=None)
+    }
 
 
 def test_iam_t2_fahrenheit_mode_82f() -> None:
