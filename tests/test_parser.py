@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -29,6 +30,7 @@ from inkbird_ble.parser import (
     MAX_PLAUSIBLE_BATTERY_PERCENTAGE,
     MAX_PLAUSIBLE_HUMIDITY,
     MIN_POLL_INTERVAL,
+    NOTIFY_MODELS,
     SENSOR_MODELS,
     INKBIRDBluetoothDeviceData,
     Model,
@@ -4427,3 +4429,58 @@ def test_adv_battery_boundary_covers_every_battery_reporting_model() -> None:
     regrow. IAM-T2 is intentionally excluded: it does not publish battery.
     """
     assert set(_ADV_BATTERY_BOUNDARY_CASES) == _BATTERY_REPORTING_SENSOR_MODELS
+
+
+# Notify boundary net — extends the ADV boundary-net pattern
+# (#213/#214/#216) to ``NOTIFY_MODELS``. Each notify model must declare at
+# least one named corrupt-input test, so a future notify protocol added to
+# ``NOTIFY_MODELS`` is forced to ship the same corrupt-byte prevention
+# coverage we built for advertisement decoders. Notify packets are too
+# protocol-specific to parametrize the test bodies (IAM-T1 multi-step
+# init vs IHT-2PB per-probe selectors), so the registry maps each model
+# to the names of its dedicated bespoke tests and a meta-test verifies
+# both set coverage and that every declared name resolves to a real test.
+_NOTIFY_CORRUPT_INPUT_TESTS: dict[Model, tuple[str, ...]] = {
+    Model.IAM_T1: (
+        "test_notify_iam_t1_corrupt_temperature_dropped",
+        "test_notify_iam_t1_corrupt_humidity_dropped",
+        "test_notify_iam_t1_corrupt_co2_dropped",
+        "test_notify_iam_t1_corrupt_pressure_dropped",
+    ),
+    Model.IHT_2PB: ("test_notify_iht_2pb_skips_invalid_packets",),
+}
+
+
+def test_notify_boundary_covers_every_notify_model() -> None:
+    """Every notify model must declare at least one corrupt-input test.
+
+    Mirrors the ADV boundary-net meta-tests (#213/#214/#216). A future
+    notify model added to ``NOTIFY_MODELS`` must also add a corrupt-input
+    scenario here, so the raw-byte-emit defect family cannot silently
+    regrow on the notify side.
+    """
+    assert set(_NOTIFY_CORRUPT_INPUT_TESTS) == NOTIFY_MODELS
+
+
+@pytest.mark.parametrize(
+    ("model", "test_name"),
+    [
+        (model, name)
+        for model, names in _NOTIFY_CORRUPT_INPUT_TESTS.items()
+        for name in names
+    ],
+)
+def test_notify_corrupt_input_test_is_defined(model: Model, test_name: str) -> None:
+    """Each declared notify corrupt-input test name must resolve to a callable.
+
+    Without this check the registry above would be a manual claim; a renamed
+    or deleted test would leave a notify model effectively unguarded while
+    the coverage meta-test still passed. Looking the name up in the test
+    module keeps the declaration honest.
+    """
+    module = sys.modules[__name__]
+    fn = getattr(module, test_name, None)
+    assert callable(fn), (
+        f"Declared notify corrupt-input test {test_name!r} for {model.value} "
+        f"is missing from {module.__name__}"
+    )
