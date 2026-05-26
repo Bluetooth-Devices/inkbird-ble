@@ -1,5 +1,8 @@
 # Usage
 
+See [Supported devices](supported_devices.md) for the full list of recognised
+models and the transport (advertisement / poll / notify) each one uses.
+
 `inkbird-ble` turns the BLE advertisements (and, for some models, GATT
 notifications/reads) emitted by INKBIRD devices into structured sensor values.
 It is built on top of

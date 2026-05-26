@@ -6,6 +6,7 @@
 
 installation
 usage
+supported_devices
 ```
 
 ```{toctree}
