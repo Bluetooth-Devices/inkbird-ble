@@ -503,6 +503,13 @@ MAX_PLAUSIBLE_HUMIDITY = 100.0
 # this guard to them would be dead defensive code.
 MAX_PLAUSIBLE_AMBIENT_TEMPERATURE_CELSIUS = 200.0
 
+# Battery percentages above 100 are physically impossible. The advertisement
+# (9/18-byte) and INT-11P-B poll decoders read battery from a single raw byte,
+# so a garbage 0xFF surfaces as 255% (or 127% after the INT-11P-B mask/shift).
+# Same shape as the humidity #141 / temperature #155 family: a corrupt field
+# marks a corrupt packet, so the whole reading is dropped.
+MAX_PLAUSIBLE_BATTERY_PERCENTAGE = 100
+
 
 def convert_temperature(temp: float) -> float:
     """Temperature converter.
@@ -986,6 +993,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # impossible humidity as a corrupt packet and drop the whole
             # reading rather than publish any of its fields (#141).
             return
+        if bat is not None and not self._is_battery_plausible(bat):
+            # Garbage battery byte (e.g. 0xFF -> 255%) marks a corrupt packet;
+            # drop the whole reading to match the humidity/temperature family.
+            return
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 100)
         if reports_humidity:
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humidity)
@@ -1040,6 +1051,24 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             return False
         return True
 
+    def _is_battery_plausible(self, battery: int) -> bool:
+        """Return ``False`` for a battery percentage that cannot physically exist.
+
+        Advertisement and poll decoders read battery from a raw byte; a garbage
+        0xFF surfaces as 255% (or 127% after INT-11P-B's mask/shift), the same
+        corrupt-packet shape as the #141 humidity and #155 temperature families.
+        Callers drop the whole reading rather than publish an impossible
+        battery alongside potentially-corrupt temperature/humidity fields.
+        """
+        if battery > MAX_PLAUSIBLE_BATTERY_PERCENTAGE:
+            _LOGGER.debug(
+                "Ignoring corrupt reading from %s: battery %d%% exceeds 100%%",
+                self.name,
+                battery,
+            )
+            return False
+        return True
+
     def _update_eighteen_byte_model_from_raw(
         self, temp_hum_bytes: bytes, bat: int
     ) -> None:
@@ -1049,6 +1078,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
         humidity = hum / 10
         if not self._is_humidity_plausible(humidity):
+            return
+        if not self._is_battery_plausible(bat):
+            # Garbage battery byte (e.g. 0xFF -> 255%) marks a corrupt packet;
+            # drop the whole reading to match the humidity/temperature family.
             return
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temp / 10)
         self.update_predefined_sensor(SensorLibrary.BATTERY__PERCENTAGE, bat)
@@ -1106,6 +1139,15 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 "INT-11P-B read too short (%d bytes): %s", len(payload), payload
             )
             return
+        probe_battery = payload[INT_11P_B_PROBE_BATTERY_INDEX] & INT_11P_B_BATTERY_MASK
+        case_battery = payload[INT_11P_B_CASE_BATTERY_INDEX] >> 1
+        if not self._is_battery_plausible(
+            probe_battery
+        ) or not self._is_battery_plausible(case_battery):
+            # The 7-bit mask / >>1 shift caps these at 127 — still impossible.
+            # A garbage byte here marks a corrupt read; drop the whole packet
+            # to match the humidity/temperature corrupt-input family.
+            return
         self.update_predefined_sensor(
             SensorLibrary.TEMPERATURE__CELSIUS,
             payload[INT_11P_B_PROBE_TEMP_INDEX],
@@ -1124,13 +1166,13 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             )
         self.update_predefined_sensor(
             SensorLibrary.BATTERY__PERCENTAGE,
-            payload[INT_11P_B_PROBE_BATTERY_INDEX] & INT_11P_B_BATTERY_MASK,
+            probe_battery,
             key="probe_battery",
             name="Probe Battery",
         )
         self.update_predefined_sensor(
             SensorLibrary.BATTERY__PERCENTAGE,
-            payload[INT_11P_B_CASE_BATTERY_INDEX] >> 1,
+            case_battery,
             key="case_battery",
             name="Case Battery",
         )
