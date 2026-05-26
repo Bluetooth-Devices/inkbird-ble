@@ -23,6 +23,7 @@ from sensor_state_data import (
 from inkbird_ble.parser import (
     IHT_2PB_NOTIFY_UUID,
     IHT_2PB_WRITE_UUID,
+    MAX_PLAUSIBLE_BATTERY_PERCENTAGE,
     MAX_PLAUSIBLE_HUMIDITY,
     MIN_POLL_INTERVAL,
     SENSOR_MODELS,
@@ -3912,6 +3913,30 @@ async def test_int_11p_b_poll_short_read_ignored() -> None:
 
 
 @pytest.mark.asyncio
+async def test_int_11p_b_poll_impossible_battery_dropped() -> None:
+    """A garbage battery byte drops the whole INT-11P-B poll read.
+
+    After the ``& 0x7F`` mask / ``>> 1`` shift the byte caps at 127 — still
+    impossible. Treat it as a corrupt read and emit no temperature/battery,
+    matching the humidity/temperature corrupt-packet family (#141 / #155).
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11P_B)
+    parser.update(_int_11p_b_service_info())
+    # Byte [4] (probe battery) = 0xFF -> 0x7F = 127% after mask, impossible.
+    read_gatt_char_mock = AsyncMock(return_value=b"\xaa\x20\x80\x1d\xff\x38\x54")
+    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="90:7B:C6:0A:06:28", name="INT-11P-B", details={})
+        )
+    keys = {key.key for key in update.entity_values}
+    assert "temperature_probe" not in keys
+    assert "temperature_ambient" not in keys
+    assert "probe_battery" not in keys
+    assert "case_battery" not in keys
+
+
+@pytest.mark.asyncio
 async def test_nine_byte_poll_short_read_ignored() -> None:
     """A truncated 9-byte poll read is skipped instead of raising.
 
@@ -4194,3 +4219,73 @@ def test_adv_temperature_boundary_covers_every_sensor_model() -> None:
     unsigned-temperature bug family (#155/#188/#193) cannot silently regrow.
     """
     assert set(_ADV_TEMPERATURE_BOUNDARY_CASES) == SENSOR_MODELS
+
+
+# ---------------------------------------------------------------------------
+# Battery side of the same boundary net.
+#
+# Every advertisement battery-reporting decoder reads battery from a single
+# raw byte (9-byte ``data[7]``, 18-byte ``data[10]``). A garbage 0xFF surfaces
+# as 255% — same corrupt-packet shape as the humidity/temperature families.
+# IAM-T2 is the only ``SENSOR_MODELS`` member that does not emit battery, so
+# the table covers ``SENSOR_MODELS - {IAM_T2}`` and the meta-test gates that.
+# ---------------------------------------------------------------------------
+
+_BATTERY_KEY = DeviceKey(key="battery", device_id=None)
+
+# Models in ``SENSOR_MODELS`` whose adv parser emits a battery reading. IAM-T2
+# intentionally does not publish battery (its encoding is unconfirmed), so it
+# is excluded from the corrupt-battery boundary table.
+_BATTERY_REPORTING_SENSOR_MODELS = SENSOR_MODELS - {Model.IAM_T2}
+
+# model -> (advertised name, manufacturer id, valid payload, battery byte index)
+_ADV_BATTERY_BOUNDARY_CASES: dict[Model, tuple[str, int, bytes, int]] = {
+    Model.IBS_TH: ("sps", 2044, b"\xc7\x12\x00\xc8=V\x06", 5),
+    Model.IBS_TH2: ("tps", 2248, b"\x84\x14\x00\x88\x99d\x06", 5),
+    Model.ITH_11_B: ("ith-11-b", 9289, _VALID_18_BYTE, 8),
+    Model.ITH_13_B: ("ith-13-b", 9289, _VALID_18_BYTE, 8),
+    Model.ITH_21_B: ("ith-21-b", 9289, _VALID_18_BYTE, 8),
+    Model.IBS_P02B: ("ibs-p02b", 9289, _VALID_18_BYTE, 8),
+    Model.GENERIC_18: ("unknown", 9289, _VALID_18_BYTE, 8),
+}
+
+
+@pytest.mark.parametrize("model", list(_ADV_BATTERY_BOUNDARY_CASES))
+def test_adv_battery_boundary_invariant(model: Model) -> None:
+    """No advertisement sensor model ever publishes an impossible battery.
+
+    The valid payload decodes to a plausible battery; the same payload with a
+    0xFF battery field publishes nothing (the corrupt packet is dropped, just
+    like the humidity #141 family). Guards a future regression to the raw
+    ``update_predefined_sensor(BATTERY__PERCENTAGE, byte)`` shape.
+    """
+    name, mfr_id, payload, battery_index = _ADV_BATTERY_BOUNDARY_CASES[model]
+
+    # Baseline: the model is detected and reports a physically plausible value.
+    valid = INKBIRDBluetoothDeviceData()
+    valid_result = valid.update(_boundary_service_info(name, mfr_id, payload))
+    assert valid.device_type is model
+    valid_battery = valid_result.entity_values.get(_BATTERY_KEY)
+    assert valid_battery is not None
+    assert 0 <= valid_battery.native_value <= MAX_PLAUSIBLE_BATTERY_PERCENTAGE
+
+    # Corrupt only the battery byte; detection bytes are untouched.
+    corrupt_payload = bytearray(payload)
+    corrupt_payload[battery_index] = 0xFF
+    corrupt = INKBIRDBluetoothDeviceData()
+    corrupt_result = corrupt.update(
+        _boundary_service_info(name, mfr_id, bytes(corrupt_payload))
+    )
+    assert corrupt.device_type is model
+    assert corrupt_result.entity_values.get(_BATTERY_KEY) is None
+
+
+def test_adv_battery_boundary_covers_every_battery_reporting_model() -> None:
+    """Every battery-reporting sensor model must declare a corrupt-battery case.
+
+    Mirrors the humidity/temperature meta-tests. Forces a future device parser
+    added to ``SENSOR_MODELS`` (that reports battery) to also declare its
+    corrupt-battery expectation, so the raw-byte-emit defect cannot silently
+    regrow. IAM-T2 is intentionally excluded: it does not publish battery.
+    """
+    assert set(_ADV_BATTERY_BOUNDARY_CASES) == _BATTERY_REPORTING_SENSOR_MODELS
