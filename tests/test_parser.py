@@ -4033,3 +4033,101 @@ def test_adv_humidity_boundary_covers_every_sensor_model() -> None:
     boundary entry, so the unsigned-humidity bug family cannot silently regrow.
     """
     assert set(_ADV_HUMIDITY_BOUNDARY_CASES) == SENSOR_MODELS
+
+
+# ---------------------------------------------------------------------------
+# Temperature side of the same boundary net (#155/#188/#193 family).
+#
+# Three separate fixes converted advertisement temperature parsers from
+# unsigned to signed (BBQ <HH -> <hh in #193, IAM-T2 big-endian in #189, iBBQ-2
+# in #185). The companion humidity net above proves a 0xFFFF *humidity* never
+# escapes; this table proves a 0xFFFF *temperature* still decodes inside a
+# plausible Celsius range — i.e. the parser is signed. A regression to the
+# unsigned form would surface as ~6553 C and fail this invariant.
+#
+# Layout differs by model family:
+#   * Nine-byte name-detected models (IBS-TH / IBS-TH2) read the temperature
+#     from the manufacturer-id key itself, not the payload, so the corruption
+#     swaps the mfr_id for ``0xFFFF`` rather than mutating payload bytes.
+#   * Eighteen-byte / seventeen-byte models read the temperature from a fixed
+#     payload slice; detection bytes (mfr_id, IAM-T2 MAC prefix) stay intact.
+# ---------------------------------------------------------------------------
+
+_TEMPERATURE_KEY = DeviceKey(key="temperature", device_id=None)
+
+# Outer bound for a physically plausible decoded temperature in Celsius. An
+# unsigned-temperature regression wraps 0xFFFF to ~6553.5; any value inside
+# this range proves the parser is still signed.
+_PLAUSIBLE_TEMP_CELSIUS_MAX = 200.0
+
+# model -> (advertised name, manufacturer id, valid payload, temperature byte
+# slice in the payload; ``None`` means "the temperature lives in the mfr_id
+# itself — corrupt by swapping the key to 0xFFFF").
+_ADV_TEMPERATURE_BOUNDARY_CASES: dict[Model, tuple[str, int, bytes, slice | None]] = {
+    Model.IBS_TH: ("sps", 2044, b"\xc7\x12\x00\xc8=V\x06", None),
+    Model.IBS_TH2: ("tps", 2248, b"\x84\x14\x00\x88\x99d\x06", None),
+    Model.ITH_11_B: ("ith-11-b", 9289, _VALID_18_BYTE, slice(4, 6)),
+    Model.ITH_13_B: ("ith-13-b", 9289, _VALID_18_BYTE, slice(4, 6)),
+    Model.ITH_21_B: ("ith-21-b", 9289, _VALID_18_BYTE, slice(4, 6)),
+    Model.IBS_P02B: ("ibs-p02b", 9289, _VALID_18_BYTE, slice(4, 6)),
+    Model.GENERIC_18: ("unknown", 9289, _VALID_18_BYTE, slice(4, 6)),
+    Model.IAM_T2: (
+        "ink@iam-t2",
+        12884,
+        bytes.fromhex("006200a13e29bed4ffce01ee025391"),
+        slice(8, 10),
+    ),
+}
+
+
+@pytest.mark.parametrize("model", list(_ADV_TEMPERATURE_BOUNDARY_CASES))
+def test_adv_temperature_boundary_invariant(model: Model) -> None:
+    """A 0xFFFF advertisement temperature decodes inside a plausible range.
+
+    Every advertisement temperature parser is now signed; a 0xFFFF field
+    therefore decodes to a small negative number (e.g. -0.01 C / -0.1 C), not
+    the ~6553 C wraparound the unsigned form produced (#155/#188/#193). If a
+    future change regrew the unsigned parse, the decoded value would jump
+    outside the plausible range and this test would fail.
+    """
+    name, mfr_id, payload, temp_slice = _ADV_TEMPERATURE_BOUNDARY_CASES[model]
+
+    # Baseline: detection works and the valid payload decodes plausibly.
+    valid = INKBIRDBluetoothDeviceData()
+    valid_result = valid.update(_boundary_service_info(name, mfr_id, payload))
+    assert valid.device_type is model
+    valid_temp = valid_result.entity_values.get(_TEMPERATURE_KEY)
+    assert valid_temp is not None
+    assert abs(valid_temp.native_value) <= _PLAUSIBLE_TEMP_CELSIUS_MAX
+
+    # Corrupt only the temperature field; detection bytes (name, mfr_id key
+    # for 18/17-byte models, IAM-T2 MAC prefix) stay intact.
+    if temp_slice is None:
+        corrupt_info = _boundary_service_info(name, 0xFFFF, payload)
+    else:
+        corrupt_payload = bytearray(payload)
+        corrupt_payload[temp_slice] = b"\xff\xff"
+        corrupt_info = _boundary_service_info(name, mfr_id, bytes(corrupt_payload))
+
+    corrupt = INKBIRDBluetoothDeviceData()
+    corrupt_result = corrupt.update(corrupt_info)
+    assert corrupt.device_type is model
+    corrupt_temp = corrupt_result.entity_values.get(_TEMPERATURE_KEY)
+    # A model is free to drop the whole packet on a corrupt temperature; but
+    # if it publishes one, it must be in a sane range. The unsigned-parse
+    # regression we are guarding against would land at ~6553 C.
+    if corrupt_temp is not None:
+        assert abs(corrupt_temp.native_value) <= _PLAUSIBLE_TEMP_CELSIUS_MAX, (
+            f"{model.name}: corrupt 0xFFFF temperature decoded as "
+            f"{corrupt_temp.native_value} C — unsigned-parse regression"
+        )
+
+
+def test_adv_temperature_boundary_covers_every_sensor_model() -> None:
+    """Every advertisement sensor model must declare a corrupt-temperature case.
+
+    Mirrors the humidity meta-test: forces a future device parser added to
+    ``SENSOR_MODELS`` to also declare its temperature boundary, so the
+    unsigned-temperature bug family (#155/#188/#193) cannot silently regrow.
+    """
+    assert set(_ADV_TEMPERATURE_BOUNDARY_CASES) == SENSOR_MODELS
