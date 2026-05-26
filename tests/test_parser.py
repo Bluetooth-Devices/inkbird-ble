@@ -3983,7 +3983,9 @@ _ADV_HUMIDITY_BOUNDARY_CASES: dict[Model, tuple[str, int, bytes, slice]] = {
 _HUMIDITY_KEY = DeviceKey(key="humidity", device_id=None)
 
 
-def _boundary_service_info(name: str, mfr_id: int, payload: bytes) -> BluetoothServiceInfoBleak:
+def _boundary_service_info(
+    name: str, mfr_id: int, payload: bytes
+) -> BluetoothServiceInfoBleak:
     return make_bluetooth_service_info(
         name=name,
         manufacturer_data={mfr_id: payload},
