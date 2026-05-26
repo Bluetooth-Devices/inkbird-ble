@@ -109,6 +109,14 @@ NINE_BYTE_MESSAGE_LENGTH = 9
 SEVENTEEN_BYTE_MESSAGE_LENGTH = 17
 EIGHTEEN_BYTE_MESSAGE_LENGTH = 18
 
+# Minimum byte counts a connectable GATT poll read must return before it can be
+# decoded. A truncated read (BLE flakiness, a short MTU) would otherwise raise
+# struct.error / IndexError while slicing the payload. The nine-byte path
+# unpacks payload[0:4]; the eighteen-byte path slices payload[5:9] and indexes
+# payload[9]. See ``async_poll``.
+NINE_BYTE_POLL_MIN_READ_LEN = 4
+EIGHTEEN_BYTE_POLL_MIN_READ_LEN = 10
+
 # Manufacturer-data IDs used to disambiguate models that advertise a generic
 # or shared local name. These are the integer keys of the manufacturer_data
 # dict (Bluetooth SIG company identifiers). Endianness only matters when the
@@ -879,15 +887,35 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         char = service.get_characteristic(dev_info.characteristic_uuid)
         return await client.read_gatt_char(char)
 
+    def _poll_read_too_short(self, payload: bytes, minimum: int) -> bool:
+        """Return ``True`` (and log) when a GATT poll read is undersized.
+
+        A device that returns fewer bytes than a decode path needs would
+        otherwise crash that path while slicing; callers skip the decode so the
+        poll yields no values rather than raising. Mirrors the INT-11P-B guard.
+        """
+        if len(payload) < minimum:
+            _LOGGER.debug(
+                "%s poll read too short (%d bytes, need %d): %s",
+                self.name,
+                len(payload),
+                minimum,
+                payload,
+            )
+            return True
+        return False
+
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
         payload = await self._async_connect_and_read(ble_device)
         if self._device_type in EIGHTEEN_BYTE_SENSOR_MODELS:
-            self._update_eighteen_byte_model_from_raw(payload[5:9], payload[9])
+            if not self._poll_read_too_short(payload, EIGHTEEN_BYTE_POLL_MIN_READ_LEN):
+                self._update_eighteen_byte_model_from_raw(payload[5:9], payload[9])
         elif self._device_type in NINE_BYTE_SENSOR_MODELS:
             # Battery doesn't seem to be available for these models
             # but it is in the advertisement data
-            self._update_nine_byte_model_from_raw(payload[0:4], None)
+            if not self._poll_read_too_short(payload, NINE_BYTE_POLL_MIN_READ_LEN):
+                self._update_nine_byte_model_from_raw(payload[0:4], None)
         elif self._device_type == Model.INT_11P_B:
             self._update_int_11p_b_from_raw(payload)
         return self._finish_update()

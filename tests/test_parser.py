@@ -3771,6 +3771,67 @@ async def test_int_11p_b_poll_short_read_ignored() -> None:
 
 
 @pytest.mark.asyncio
+async def test_nine_byte_poll_short_read_ignored() -> None:
+    """A truncated 9-byte poll read is skipped instead of raising.
+
+    The decode unpacks ``payload[0:4]`` with a 4-byte struct; a shorter read
+    would raise ``struct.error``. The guard drops it so the poll emits no
+    temperature/humidity values.
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.IBS_TH)
+    service_info = make_bluetooth_service_info(
+        name="N0BYD",
+        manufacturer_data={},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    read_gatt_char_mock = AsyncMock(return_value=b"\x09\x09")
+    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="aa:bb:cc:dd:ee:ff", name="N0BYD", details={})
+        )
+    keys = {key.key for key in update.entity_values}
+    assert "temperature" not in keys
+    assert "humidity" not in keys
+
+
+@pytest.mark.asyncio
+async def test_eighteen_byte_poll_short_read_ignored() -> None:
+    """A truncated 18-byte poll read is skipped instead of raising.
+
+    The decode slices ``payload[5:9]`` and indexes ``payload[9]``; a shorter
+    read would raise ``IndexError``. The guard drops it so the poll emits no
+    temperature/humidity/battery values.
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
+    service_info = make_bluetooth_service_info(
+        name="N0BYD",
+        manufacturer_data={},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    read_gatt_char_mock = AsyncMock(return_value=b"\x00\x01\x02")
+    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="aa:bb:cc:dd:ee:ff", name="N0BYD", details={})
+        )
+    keys = {key.key for key in update.entity_values}
+    assert "temperature" not in keys
+    assert "humidity" not in keys
+    assert "battery" not in keys
+
+
+@pytest.mark.asyncio
 async def test_async_poll_without_gatt_decoder_emits_no_readings() -> None:
     """Polling a model with no GATT decode path produces no probe readings.
 
