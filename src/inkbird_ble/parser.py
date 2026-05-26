@@ -484,17 +484,24 @@ BBQ_PROBE_NOT_CONNECTED = frozenset((0xFFFF, -1))
 # the sensor history. See https://github.com/Bluetooth-Devices/inkbird-ble/issues/141
 MAX_PLAUSIBLE_HUMIDITY = 100.0
 
-# Companion plausibility ceiling for the IAM-T1 notify path. Its protocol
-# encodes temperature as an unsigned 16-bit value plus a separate sign nibble,
-# so a garbage ``0xFFFF`` field with ``sign == 0`` decodes to 6553.5 °C — the
-# same wraparound shape as the #155 / #188 / #193 advertisement family, which
-# the signed advertisement parsers now block at the source. Notify cannot
-# switch to signed parsing without breaking the sign-nibble protocol, so the
-# guard runs here instead: any decoded reading whose absolute value exceeds
-# this ceiling marks a corrupt packet and is dropped. The ceiling matches the
-# invariant the temperature boundary-net test enforces against the
-# advertisement parsers (see ``test_adv_temperature_boundary_invariant``).
-MAX_PLAUSIBLE_TEMPERATURE_CELSIUS = 200.0
+# Companion plausibility ceiling for ambient/indoor-air decoders (currently
+# the IAM-T1 notify path). That protocol encodes temperature as an unsigned
+# 16-bit value plus a separate sign nibble, so a garbage ``0xFFFF`` field with
+# ``sign == 0`` decodes to 6553.5 °C — the same wraparound shape as the
+# #155 / #188 / #193 advertisement family, which the signed advertisement
+# parsers now block at the source. Notify cannot switch to signed parsing
+# without breaking the sign-nibble protocol, so the guard runs here instead:
+# any decoded reading whose absolute value exceeds this ceiling marks a
+# corrupt packet and is dropped. The ceiling matches the invariant the
+# temperature boundary-net test enforces against the advertisement parsers
+# (see ``test_adv_temperature_boundary_invariant``).
+#
+# NOT valid for BBQ probe decoders (iBBQ-1/2/4/6), which spec up to ~300 °C
+# and would need their own higher ceiling (e.g.
+# ``MAX_PLAUSIBLE_PROBE_TEMPERATURE_CELSIUS``) if a real corruption case ever
+# appears there. Today the ADV BBQ decoders are already signed, so applying
+# this guard to them would be dead defensive code.
+MAX_PLAUSIBLE_AMBIENT_TEMPERATURE_CELSIUS = 200.0
 
 
 def convert_temperature(temp: float) -> float:
@@ -1009,16 +1016,21 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         return True
 
     def _is_temperature_plausible(self, temperature_c: float) -> bool:
-        """Return ``False`` for a temperature outside the plausible Celsius range.
+        """Return ``False`` for an ambient temperature outside plausible Celsius range.
 
-        Used by decode paths whose protocol cannot be made signed at the
-        source (currently only the IAM-T1 sign-nibble notify packet). A
-        garbage 16-bit field there decodes to ~6553 °C, the same wraparound
-        the signed advertisement parsers now block — this guard catches it on
-        the notify side. Callers drop the whole packet rather than publish a
-        temperature outside ``MAX_PLAUSIBLE_TEMPERATURE_CELSIUS``.
+        Scoped to **ambient/indoor-air** decoders whose protocol cannot be
+        made signed at the source (currently only the IAM-T1 sign-nibble
+        notify packet). A garbage 16-bit field there decodes to ~6553 °C,
+        the same wraparound the signed advertisement parsers now block —
+        this guard catches it on the notify side. Callers drop the whole
+        packet rather than publish a temperature outside
+        ``MAX_PLAUSIBLE_AMBIENT_TEMPERATURE_CELSIUS``.
+
+        **Not valid for BBQ probe decoders** (iBBQ-1/2/4/6), which spec up
+        to ~300 °C — those would need their own higher ceiling if a real
+        corruption case ever appears there.
         """
-        if abs(temperature_c) > MAX_PLAUSIBLE_TEMPERATURE_CELSIUS:
+        if abs(temperature_c) > MAX_PLAUSIBLE_AMBIENT_TEMPERATURE_CELSIUS:
             _LOGGER.debug(
                 "Ignoring corrupt reading from %s: temperature %.1f °C "
                 "exceeds plausible range",
