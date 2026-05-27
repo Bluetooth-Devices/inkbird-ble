@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import pathlib
 import sys
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -4546,3 +4547,30 @@ def test_notify_init_writes_only_on_notify_models() -> None:
             assert model in NOTIFY_MODELS, (
                 f"{model} has notify_init_writes but is not in NOTIFY_MODELS"
             )
+
+
+# ---------------------------------------------------------------------------
+# Documentation drift guard.
+#
+# ``docs/source/supported_devices.md`` lists every ``Model`` so users (and
+# downstream integrations) can check device support at a glance. New parsers
+# must update that table; this meta-test fails when a ``Model`` enum member
+# has no row, mirroring the boundary-net drift tests above.
+# ---------------------------------------------------------------------------
+
+
+def test_supported_devices_doc_mentions_every_model() -> None:
+    """Every ``Model`` enum member must appear in the supported-devices doc.
+
+    Forces a new parser to update the user-facing table when its ``Model``
+    enum member lands, so the support matrix cannot silently drift.
+    """
+    doc_path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "docs"
+        / "source"
+        / "supported_devices.md"
+    )
+    doc_text = doc_path.read_text(encoding="utf-8")
+    missing = [m.value for m in Model if m.value not in doc_text]
+    assert missing == [], f"Models missing from supported_devices.md: {missing}"
