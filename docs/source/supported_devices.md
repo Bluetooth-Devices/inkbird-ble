@@ -48,11 +48,10 @@ scope for this library:
 
 - **Sous-vide cookers** (`ISV-100W`, `ISV-100W 2.0`, `ISV-200W`, `ISV-300W`,
   `ISV-101W`). These are **Wi-Fi / Tuya** devices, not BLE, so they cannot be
-  parsed here. Track issue [#92] for the latest position.
+  parsed here.
 
 If you have a device that looks like it should work but is not detected,
 open an issue with a BLE advertisement capture (e.g. from `bluetoothctl` or
 `nrfConnect`) so the model can be reverse-engineered.
 
-[#92]: https://github.com/Bluetooth-Devices/inkbird-ble/issues/92
 [#116]: https://github.com/Bluetooth-Devices/inkbird-ble/issues/116
