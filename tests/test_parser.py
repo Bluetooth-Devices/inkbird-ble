@@ -25,11 +25,14 @@ import inkbird_ble
 from inkbird_ble import INKBIRDBluetoothDeviceData as PublicData
 from inkbird_ble import Model as PublicModel
 from inkbird_ble.parser import (
+    BBQ_MODELS,
+    GATT_POLL_MODELS,
     IHT_2PB_NOTIFY_UUID,
     IHT_2PB_WRITE_UUID,
     MAX_PLAUSIBLE_BATTERY_PERCENTAGE,
     MAX_PLAUSIBLE_HUMIDITY,
     MIN_POLL_INTERVAL,
+    MODEL_INFO,
     NOTIFY_MODELS,
     SENSOR_MODELS,
     INKBIRDBluetoothDeviceData,
@@ -4484,3 +4487,62 @@ def test_notify_corrupt_input_test_is_defined(model: Model, test_name: str) -> N
         f"Declared notify corrupt-input test {test_name!r} for {model.value} "
         f"is missing from {module.__name__}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Model -> dispatch coverage invariant.
+#
+# Closes the last drift gap in the boundary-net family. Every member of the
+# ``Model`` enum must (a) have a ``MODEL_INFO`` entry and (b) belong to at
+# least one of the four dispatch category sets — otherwise the model would be
+# silently orphaned: the parser would have no path to reach it. A future
+# contributor adding a new ``Model`` member is forced by these meta-tests to
+# also register it in ``MODEL_INFO`` and place it in the right category set
+# (advertisement BBQ / advertisement sensor / notify / GATT-only poll).
+# ---------------------------------------------------------------------------
+
+
+def test_model_info_covers_every_model() -> None:
+    """Every ``Model`` enum member must have a ``MODEL_INFO`` entry.
+
+    Without this, the first advertisement for the new model would raise
+    ``KeyError`` inside ``_start_update``. Surfacing the omission at import
+    time via the test suite is dramatically louder than a runtime crash on a
+    user's hub.
+    """
+    assert set(MODEL_INFO) == set(Model)
+
+
+def test_every_model_has_a_dispatch_category() -> None:
+    """Every ``Model`` enum member must belong to at least one dispatch set.
+
+    The parser reaches a model via one of four routes:
+
+    * ``BBQ_MODELS`` — advertisement parsed by ``_update_bbq_model``;
+    * ``SENSOR_MODELS`` — advertisement parsed by the length-keyed dispatch
+      (9 / 17 / 18 byte handlers);
+    * ``NOTIFY_MODELS`` — GATT notifications dispatched through
+      ``_notify_callback`` / ``_notify_dispatch``;
+    * ``GATT_POLL_MODELS`` — connectable-only probes with no usable
+      advertisement payload (e.g. ``INT-11P-B``).
+
+    A model that falls outside all four sets has no decode path and would
+    appear to "exist" but never emit a reading. Asserting equality (rather
+    than subset) also catches the inverse drift — a stale entry left behind
+    after a ``Model`` removal.
+    """
+    assert set(Model) == (BBQ_MODELS | SENSOR_MODELS | NOTIFY_MODELS | GATT_POLL_MODELS)
+
+
+def test_notify_init_writes_only_on_notify_models() -> None:
+    """``notify_init_writes`` must only be set on models that use notify.
+
+    The init writes fire from ``_async_start_notify`` after subscribing; on a
+    pure advertisement-parsed model they would never run, so a non-empty value
+    there indicates a misconfigured ``ModelInfo``.
+    """
+    for model, info in MODEL_INFO.items():
+        if info.notify_init_writes:
+            assert model in NOTIFY_MODELS, (
+                f"{model} has notify_init_writes but is not in NOTIFY_MODELS"
+            )
