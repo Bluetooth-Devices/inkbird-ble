@@ -151,9 +151,16 @@ IHT_2PB_INIT_WRITES = (
 # temperature frames use commands 0x02/0x04/0x06 (Celsius for probe 1/2/3); the
 # payload is a signed 16-bit big-endian value in tenths of a degree Celsius.
 IHT_2PB_FRAME_HEADER = b"\x55\xaa"
+# Frame byte offsets relative to the header start.
+IHT_2PB_HEADER_LEN = 2
+IHT_2PB_CMD_OFFSET = 2
+IHT_2PB_LEN_OFFSET = 3
+IHT_2PB_PAYLOAD_OFFSET = 4
 IHT_2PB_FRAME_MIN_LEN = 5  # header(2) + command(1) + length(1) + checksum(1)
 IHT_2PB_PROBE_SELECTORS = {0x02: 1, 0x04: 2, 0x06: 3}
 IHT_2PB_TEMP_PAYLOAD_LEN = 2
+# Probe payload is a signed 16-bit big-endian value in tenths of a degree.
+IHT_2PB_TEMP_UNPACK = struct.Struct(">h").unpack
 
 # INT-11P-B GATT support. This connectable BBQ probe carries no readings in its
 # advertisement; the values are read from the ``fff1`` characteristic on the
@@ -725,18 +732,18 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         index = 0
         length = len(data)
         while index + IHT_2PB_FRAME_MIN_LEN <= length:
-            if data[index : index + 2] != IHT_2PB_FRAME_HEADER:
+            if data[index : index + IHT_2PB_HEADER_LEN] != IHT_2PB_FRAME_HEADER:
                 index += 1
                 continue
-            payload_len = data[index + 3]
-            checksum_index = index + 4 + payload_len
+            payload_len = data[index + IHT_2PB_LEN_OFFSET]
+            checksum_index = index + IHT_2PB_PAYLOAD_OFFSET + payload_len
             if checksum_index >= length:
                 break
             if sum(data[index:checksum_index]) & 0xFF != data[checksum_index]:
                 index += 1
                 continue
-            command = data[index + 2]
-            payload = bytes(data[index + 4 : checksum_index])
+            command = data[index + IHT_2PB_CMD_OFFSET]
+            payload = bytes(data[index + IHT_2PB_PAYLOAD_OFFSET : checksum_index])
             yield command, payload
             index = checksum_index + 1
 
@@ -758,10 +765,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             probe_num = IHT_2PB_PROBE_SELECTORS.get(command)
             if probe_num is None or len(payload) < IHT_2PB_TEMP_PAYLOAD_LEN:
                 continue
-            temp = (
-                int.from_bytes(payload[:IHT_2PB_TEMP_PAYLOAD_LEN], "big", signed=True)
-                / 10
-            )
+            temp = IHT_2PB_TEMP_UNPACK(payload[:IHT_2PB_TEMP_PAYLOAD_LEN])[0] / 10
             _LOGGER.debug("IHT-2PB probe %d temperature: %s", probe_num, temp)
             self.update_predefined_sensor(
                 SensorLibrary.TEMPERATURE__CELSIUS,
