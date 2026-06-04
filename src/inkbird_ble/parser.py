@@ -738,7 +738,12 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             payload_len = data[index + IHT_2PB_LEN_OFFSET]
             checksum_index = index + IHT_2PB_PAYLOAD_OFFSET + payload_len
             if checksum_index >= length:
-                break
+                # Declared length overshoots the buffer. A spurious ``55 aa``
+                # whose length byte runs long should not abort the walk, so
+                # resync one byte (like the bad-header/checksum paths); a
+                # genuinely truncated tail frame just runs out and stops.
+                index += 1
+                continue
             if sum(data[index:checksum_index]) & 0xFF != data[checksum_index]:
                 index += 1
                 continue
