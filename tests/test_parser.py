@@ -3762,10 +3762,12 @@ async def test_notify_iht_2pb_probes() -> None:
     async def start_notify_mock(
         uuid: UUID, callback: Callable[[UUID, bytes], None]
     ) -> None:
-        # probe 1 -> 24.5C, probe 2 -> 100.0C, probe 3 -> -1.0C (sub-zero)
-        callback(uuid, b"\x55\xaa\x02\x00\x00\xf5")
-        callback(uuid, b"\x55\xaa\x04\x00\x03\xeb")
-        callback(uuid, b"\x55\xaa\x06\x00\xff\xf5")
+        # Real hardware captures (issue #222, firmware VER1.2.0): the temperature
+        # is a signed 16-bit big-endian value in tenths of a degree Celsius.
+        # probe 1 -> 31.7C, probe 2 -> 100.0C, probe 3 -> -1.6C (sub-zero)
+        callback(uuid, b"\x55\xaa\x02\x02\x01\x3d\x41")
+        callback(uuid, b"\x55\xaa\x04\x02\x03\xe8\xf0")
+        callback(uuid, b"\x55\xaa\x06\x02\xff\xf0\xf6")
 
     write_mock = AsyncMock()
     mock_client = MagicMock(
@@ -3789,9 +3791,9 @@ async def test_notify_iht_2pb_probes() -> None:
     values = {
         key.key: value.native_value for key, value in updates[-1].entity_values.items()
     }
-    assert values["temperature_probe_1"] == 24.5
+    assert values["temperature_probe_1"] == 31.7
     assert values["temperature_probe_2"] == 100.0
-    assert values["temperature_probe_3"] == -1.0
+    assert values["temperature_probe_3"] == -1.6
 
     # Both activation commands were written after subscribing.
     written = {
@@ -3802,8 +3804,8 @@ async def test_notify_iht_2pb_probes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_notify_iht_2pb_skips_invalid_packets() -> None:
-    """Disconnected probes, unknown selectors and short packets are ignored."""
+async def test_notify_iht_2pb_multiple_frames_in_one_notification() -> None:
+    """A notification bundling several frames yields every probe reading."""
     updates: list[SensorUpdate] = []
 
     def _update_callback(update: SensorUpdate) -> None:
@@ -3824,8 +3826,65 @@ async def test_notify_iht_2pb_skips_invalid_packets() -> None:
     async def start_notify_mock(
         uuid: UUID, callback: Callable[[UUID, bytes], None]
     ) -> None:
-        callback(uuid, b"\x55\xaa\x02\x00\x64\x00")  # hi=100 -> unplugged dead zone
-        callback(uuid, b"\x55\xaa\x03\x00\x00\xf5")  # selector 3 -> unknown
+        # A startup burst can coalesce frames: an alarm-config frame (0x0f,
+        # ignored) followed by a real probe-1 reading. Walking by the length
+        # byte must still surface the probe reading the old single-frame read
+        # would have dropped.
+        callback(
+            uuid,
+            b"\x55\xaa\x0f\x04\x07\x12\xff\xff\x29"  # alarm setpoint -> ignored
+            b"\x55\xaa\x02\x02\x01\x3d\x41",  # probe 1 -> 31.7C
+        )
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        write_gatt_char=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="62:00:A1:35:9C:4B",
+                name="Ink@IHT-2PB#c4b",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    values = {
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] == 31.7
+
+
+@pytest.mark.asyncio
+async def test_notify_iht_2pb_skips_invalid_packets() -> None:
+    """Fahrenheit mirrors, bad checksums and short packets are ignored."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IHT_2PB, {}, _update_callback, None)
+    service_info = make_bluetooth_service_info(
+        name="Ink@IHT-2PB#c4b",
+        manufacturer_data={18505: b"2PB6200a1359c4b"},
+        service_uuids=[],
+        address="62:00:A1:35:9C:4B",
+        rssi=-33,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, b"\x55\xaa\x03\x02\x03\x7b\x82")  # Fahrenheit mirror -> ignored
+        callback(uuid, b"\x55\xaa\x02\x02\x01\x3d\x00")  # bad checksum -> dropped
+        callback(uuid, b"\x55\xaa\x02\x7f\x01\x3d")  # length runs past buffer
         callback(uuid, b"\x55\xaa")  # too short
 
     mock_client = MagicMock(
@@ -3872,7 +3931,7 @@ async def test_notify_iht_2pb_write_error_is_swallowed() -> None:
     async def start_notify_mock(
         uuid: UUID, callback: Callable[[UUID, bytes], None]
     ) -> None:
-        callback(uuid, b"\x55\xaa\x02\x00\x00\xf5")  # probe 1 -> 24.5C
+        callback(uuid, b"\x55\xaa\x02\x02\x01\x3d\x41")  # probe 1 -> 31.7C
 
     mock_client = MagicMock(
         start_notify=start_notify_mock,
@@ -3894,7 +3953,7 @@ async def test_notify_iht_2pb_write_error_is_swallowed() -> None:
     values = {
         key.key: value.native_value for key, value in updates[-1].entity_values.items()
     }
-    assert values["temperature_probe_1"] == 24.5
+    assert values["temperature_probe_1"] == 31.7
 
 
 @pytest.mark.asyncio
@@ -3942,7 +4001,7 @@ async def test_notify_iht_2pb_ignored_after_stop() -> None:
         await parser.async_stop()
 
     # Once the session has stopped, a late notification must be a no-op.
-    captured[0](IHT_2PB_NOTIFY_UUID, b"\x55\xaa\x02\x00\x00\xf5")
+    captured[0](IHT_2PB_NOTIFY_UUID, b"\x55\xaa\x02\x02\x01\x3d\x41")
     assert updates == []
 
 

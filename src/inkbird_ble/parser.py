@@ -28,7 +28,7 @@ from bluetooth_sensor_state_data import BluetoothData, SensorUpdate
 from sensor_state_data import SensorLibrary, Units
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import Callable, Coroutine, Iterable
 
     from bleak import BleakGATTCharacteristic, BLEDevice
     from habluetooth import BluetoothServiceInfoBleak
@@ -131,10 +131,10 @@ IAM_T2_MAC_PREFIX = b"\x00\x62"
 
 # IHT-2PB GATT support. This probe thermometer does not broadcast its readings;
 # it streams them over notifications on ``fff0/ffe4`` once two activation
-# commands are written. Protocol reverse-engineered by the community
-# (ebw44/ESPHome-Inkbird-ITH-2PB, derived from
-# sensor-stuff/inkbird-iht-2pb-to-mqtt) — not yet verified against hardware in
-# this library.
+# commands are written. The protocol was verified against hardware (firmware
+# VER1.2.0) with live GATT captures in
+# https://github.com/Bluetooth-Devices/inkbird-ble/issues/222 (reference decoder
+# at https://github.com/quittung/iht2pb).
 IHT_2PB_SERVICE_UUID = UUID("0000ffe0-0000-1000-8000-00805f9b34fb")
 IHT_2PB_NOTIFY_UUID = UUID("0000ffe4-0000-1000-8000-00805f9b34fb")
 IHT_2PB_WRITE_UUID = UUID("0000ffe9-0000-1000-8000-00805f9b34fb")
@@ -145,13 +145,15 @@ IHT_2PB_INIT_WRITES = (
     # temperature stream, so the write is best-effort (errors are swallowed).
     (IHT_2PB_NOTIFY_UUID, b"\x55\xaa\x1a\x01\x00\x1a"),
 )
-# Notify packets carry one probe each: a selector byte (2/4/6) maps to a probe
-# number, and the temperature is two bytes in an unusual base-255 encoding.
-IHT_2PB_MIN_NOTIFY_LEN = 6
+# A notification carries one or more frames back-to-back, each laid out as
+# ``55 aa <command> <length> <payload...> <checksum>`` where <length> counts the
+# payload bytes and <checksum> is ``sum(preceding bytes) & 0xFF``. Probe
+# temperature frames use commands 0x02/0x04/0x06 (Celsius for probe 1/2/3); the
+# payload is a signed 16-bit big-endian value in tenths of a degree Celsius.
+IHT_2PB_FRAME_HEADER = b"\x55\xaa"
+IHT_2PB_FRAME_MIN_LEN = 5  # header(2) + command(1) + length(1) + checksum(1)
 IHT_2PB_PROBE_SELECTORS = {0x02: 1, 0x04: 2, 0x06: 3}
-IHT_2PB_TEMP_BASE = 255
-IHT_2PB_NEG_HI = 254  # high byte >= this marks a sub-zero reading
-IHT_2PB_POS_MAX_HI = 11  # high byte <= this marks a valid positive reading
+IHT_2PB_TEMP_PAYLOAD_LEN = 2
 
 # INT-11P-B GATT support. This connectable BBQ probe carries no readings in its
 # advertisement; the values are read from the ``fff1`` characteristic on the
@@ -708,40 +710,70 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 bytes(data[:3]),
             )
 
+    @staticmethod
+    def _iter_iht_2pb_frames(
+        data: bytearray,
+    ) -> Iterable[tuple[int, bytes]]:
+        """Yield ``(command, payload)`` for each checksum-valid frame in ``data``.
+
+        A single notification may bundle several frames back-to-back (e.g. the
+        startup config burst arriving coalesced), so the buffer is walked by the
+        per-frame ``<length>`` byte and each frame's checksum is verified before
+        it is yielded. Frames that fail the header or checksum check are skipped
+        and the walk resynchronises one byte at a time.
+        """
+        index = 0
+        length = len(data)
+        while index + IHT_2PB_FRAME_MIN_LEN <= length:
+            if data[index : index + 2] != IHT_2PB_FRAME_HEADER:
+                index += 1
+                continue
+            payload_len = data[index + 3]
+            checksum_index = index + 4 + payload_len
+            if checksum_index >= length:
+                break
+            if sum(data[index:checksum_index]) & 0xFF != data[checksum_index]:
+                index += 1
+                continue
+            command = data[index + 2]
+            payload = bytes(data[index + 4 : checksum_index])
+            yield command, payload
+            index = checksum_index + 1
+
     def _notify_iht_2pb(
         self, _sender: BleakGATTCharacteristic, data: bytearray
     ) -> None:
         """Parse an IHT-2PB notification.
 
-        Each packet reports one probe: ``data[2]`` selects the probe (2/4/6 ->
-        probe 1/2/3) and ``data[4:6]`` is the temperature in a base-255
-        encoding (high byte <= 11 positive, >= 254 sub-zero; the 12-253 range
-        means the probe is unplugged and is skipped). Decoding follows the
-        community reference (ebw44/ESPHome-Inkbird-ITH-2PB).
+        The notification holds one or more ``55 aa <command> <length>
+        <payload...> <checksum>`` frames. Commands 0x02/0x04/0x06 carry a
+        Celsius reading for probe 1/2/3; the payload is a signed 16-bit
+        big-endian value in tenths of a degree. Other frames (the Fahrenheit
+        mirrors, alarm setpoints, connection bitmask) are ignored. An unplugged
+        socket simply emits no frame, so there is no value-range heuristic to
+        guess at occupancy. Verified against hardware in issue #222.
         """
-        if len(data) < IHT_2PB_MIN_NOTIFY_LEN:
-            return
-        probe_num = IHT_2PB_PROBE_SELECTORS.get(data[2])
-        if probe_num is None:
-            return
-        hi = data[4]
-        lo = data[5]
-        if hi >= IHT_2PB_NEG_HI:
+        emitted = False
+        for command, payload in self._iter_iht_2pb_frames(data):
+            probe_num = IHT_2PB_PROBE_SELECTORS.get(command)
+            if probe_num is None or len(payload) < IHT_2PB_TEMP_PAYLOAD_LEN:
+                continue
             temp = (
-                IHT_2PB_TEMP_BASE * (hi - IHT_2PB_TEMP_BASE) + (lo - IHT_2PB_TEMP_BASE)
-            ) / 10
-        elif hi <= IHT_2PB_POS_MAX_HI:
-            temp = (IHT_2PB_TEMP_BASE * hi + lo) / 10
-        else:
-            # Probe not plugged in; skip rather than reporting a bogus value.
+                int.from_bytes(
+                    payload[:IHT_2PB_TEMP_PAYLOAD_LEN], "big", signed=True
+                )
+                / 10
+            )
+            _LOGGER.debug("IHT-2PB probe %d temperature: %s", probe_num, temp)
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS,
+                temp,
+                key=f"temperature_probe_{probe_num}",
+                name=f"Temperature Probe {probe_num}",
+            )
+            emitted = True
+        if not emitted:
             return
-        _LOGGER.debug("IHT-2PB probe %d temperature: %s", probe_num, temp)
-        self.update_predefined_sensor(
-            SensorLibrary.TEMPERATURE__CELSIUS,
-            temp,
-            key=f"temperature_probe_{probe_num}",
-            name=f"Temperature Probe {probe_num}",
-        )
         if TYPE_CHECKING:
             assert self._update_callback is not None
         self._update_callback(self._finish_update())
