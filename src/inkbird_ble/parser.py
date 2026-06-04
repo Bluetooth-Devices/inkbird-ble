@@ -759,9 +759,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             if probe_num is None or len(payload) < IHT_2PB_TEMP_PAYLOAD_LEN:
                 continue
             temp = (
-                int.from_bytes(
-                    payload[:IHT_2PB_TEMP_PAYLOAD_LEN], "big", signed=True
-                )
+                int.from_bytes(payload[:IHT_2PB_TEMP_PAYLOAD_LEN], "big", signed=True)
                 / 10
             )
             _LOGGER.debug("IHT-2PB probe %d temperature: %s", probe_num, temp)
