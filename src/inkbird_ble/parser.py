@@ -88,6 +88,13 @@ class ModelInfo:
     # See https://github.com/Bluetooth-Devices/inkbird-ble/issues/116
     supports_polling: bool = True
 
+    def unpack(self, data: bytes) -> tuple[int, ...]:
+        """Unpack ``data`` with this model's unpacker."""
+        if self.unpacker is None:  # pragma: no cover
+            msg = f"{self.name} has no unpacker"
+            raise TypeError(msg)
+        return self.unpacker(data)
+
 
 INKBIRD_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
 EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID(
@@ -1149,7 +1156,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if TYPE_CHECKING:
             assert self._device_type is not None
         xvalue = data[10:]
-        for idx, temp in enumerate(MODEL_INFO[self._device_type].unpacker(xvalue)):
+        for idx, temp in enumerate(MODEL_INFO[self._device_type].unpack(xvalue)):
             if temp in BBQ_PROBE_NOT_CONNECTED:
                 # Probe not plugged in; skip it instead of reporting 6553.5°C.
                 continue
@@ -1170,7 +1177,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     ) -> None:
         if TYPE_CHECKING:
             assert self._device_type is not None
-        temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
+        temp, hum = MODEL_INFO[self._device_type].unpack(temp_hum_bytes)
         # Only some models report humidity: IBS-TH always, IBS-TH2 when non-zero.
         reports_humidity = self._device_type == Model.IBS_TH or (
             self._device_type == Model.IBS_TH2 and hum != 0
@@ -1304,7 +1311,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Update the sensor values for a 18 byte model."""
         if TYPE_CHECKING:
             assert self._device_type is not None
-        temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
+        temp, hum = MODEL_INFO[self._device_type].unpack(temp_hum_bytes)
         humidity = hum / 10
         if not self._is_humidity_plausible(humidity):
             return
