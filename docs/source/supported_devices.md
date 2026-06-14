@@ -19,6 +19,7 @@ must supply it (notify-only devices).
 | `IHT-2PB`               | 3-probe thermometer     | GATT notify        | local name `Ink@IHT-2PB#…`         | temperature × 3 probes                                              |
 | `INT-11P-B`             | Connected BBQ probe     | GATT poll          | local name `int-11p-b`             | probe temperature, ambient temperature, probe battery, case battery |
 | `IBT-4WB`               | 4-probe BBQ thermometer | GATT notify        | local name `Inkbird@IBT-24SPH`     | temperature × 4 probes, battery                                     |
+| `IDT-34c-B`             | 4-probe BBQ thermometer | GATT notify        | local name `IDT-34c-B`             | temperature × 4 probes, battery                                     |
 | `iBBQ-1`                | BBQ probe (1 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 1                                                     |
 | `iBBQ-2`                | BBQ probe (2 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 2                                                     |
 | `iBBQ-4`                | BBQ probe (4 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 4                                                     |
@@ -39,14 +40,17 @@ must supply it (notify-only devices).
   carries _no_ readings in its advertisement, so it must be polled.
 - **GATT notify** — the device pushes readings over a notify characteristic;
   call `async_start(service_info, ble_device)` to subscribe. `IAM-T1`,
-  `IHT-2PB` and `IBT-4WB` use this transport. `IHT-2PB` additionally requires
-  two activation writes (handled transparently) before it starts streaming.
-  `IBT-4WB` keeps the connection alive with a periodic state-sync write and
-  exposes optional control commands (`async_ibt_4wb_set_temperature_unit`,
-  `async_ibt_4wb_set_sound_enabled`, `async_ibt_4wb_set_brightness`,
-  `async_ibt_4wb_set_calibration`); its probe temperatures are transmitted in
-  Fahrenheit and converted to Celsius, and an unplugged probe is published as
-  `None`.
+  `IHT-2PB`, `IBT-4WB` and `IDT-34c-B` use this transport. `IHT-2PB`
+  additionally requires two activation writes (handled transparently) before it
+  starts streaming. `IBT-4WB` keeps the connection alive with a periodic
+  state-sync write and exposes optional control commands
+  (`async_ibt_4wb_set_temperature_unit`, `async_ibt_4wb_set_sound_enabled`,
+  `async_ibt_4wb_set_brightness`, `async_ibt_4wb_set_calibration`); its probe
+  temperatures are transmitted in Fahrenheit and converted to Celsius, and an
+  unplugged probe is published as `None`. `IDT-34c-B` is a 4-probe sibling that
+  shares the same notify protocol (the same decode and keepalive); its support
+  was derived from community reverse-engineering pending confirmation against
+  hardware (see issue [#230]).
 
 ## Not supported
 
@@ -62,3 +66,4 @@ open an issue with a BLE advertisement capture (e.g. from `bluetoothctl` or
 `nrfConnect`) so the model can be reverse-engineered.
 
 [#116]: https://github.com/Bluetooth-Devices/inkbird-ble/issues/116
+[#230]: https://github.com/Bluetooth-Devices/inkbird-ble/issues/230

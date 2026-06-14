@@ -55,6 +55,7 @@ class Model(StrEnum):
     IHT_2PB = "IHT-2PB"
     INT_11P_B = "INT-11P-B"
     IBT_4WB = "IBT-4WB"
+    IDT_34C_B = "IDT-34c-B"
 
 
 class ModelType(Enum):
@@ -117,6 +118,19 @@ IBT_4WB_CMD_SOUND_OFF = b"\x0b\x11\x00\x00\x00\x00\x00"  # mute / beeper off
 IBT_4WB_CMD_STATE_SYNC = b"\x0a\x0f\x00\x00\x00\x00\x00"
 IBT_4WB_KEEPALIVE_INTERVAL = 3  # seconds between keepalive state-sync writes
 IBT_4WB_CALIBRATION_MAX_C = 5.0  # maximum calibration offset in °C
+
+# Models that speak the IBT-4WB GATT protocol: the ff00 service with a notify
+# characteristic on ff01 that streams four signed-int16 little-endian probe
+# temperatures in Fahrenheit*10, with 0x7FFE marking an unplugged probe. The
+# IDT-34c-B is a 4-probe sibling sold under a different name; community
+# reverse-engineering (the dpereowei/sciencemadness IDT-34c-B scripts) decodes
+# it with the byte-identical formula `(value - 320) / 18`, which is algebraically
+# the same Fahrenheit*10 -> Celsius conversion, and the same 0x7FFE sentinel.
+# Two independent reverse-engineering efforts (IBT-4WB via #177, IDT-34c-B via
+# the sciencemadness scripts) converging on the same decode is the cross-source
+# confirmation that lets this share one code path.
+# See https://github.com/Bluetooth-Devices/inkbird-ble/issues/230
+IBT_4WB_PROTOCOL_MODELS = frozenset({Model.IBT_4WB, Model.IDT_34C_B})
 
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
@@ -412,6 +426,18 @@ MODEL_INFO = {
         use_local_name_for_device=False,
         parse_adv=False,
     ),
+    Model.IDT_34C_B: ModelInfo(
+        name="IDT-34c-B",
+        model_type=ModelType.SENSOR,
+        local_name="idt-34c-b",
+        message_length=IBT_4WB_DATA_LENGTH,
+        unpacker=None,
+        service_uuid=IBT_4WB_SERVICE_UUID,
+        characteristic_uuid=None,
+        notify_uuid=IBT_4WB_NOTIFY_UUID,
+        use_local_name_for_device=False,
+        parse_adv=False,
+    ),
 }
 
 INKBIRD_NAMES = {
@@ -468,6 +494,13 @@ NOTIFY_MODELS = {
 # data characteristic (no usable advertisement payload). They are not in the
 # length-based SENSOR_MODELS sets, but they must still be polled.
 GATT_POLL_MODELS = {Model.INT_11P_B}
+
+# Notify-only models that advertise nothing but a local name (no manufacturer
+# data), so they must be matched by name before the manufacturer-data guard in
+# _start_update. Maps the exact lower-cased local name to its model.
+NO_ADV_NOTIFY_NAMES = {
+    MODEL_INFO[model].local_name: model for model in IBT_4WB_PROTOCOL_MODELS
+}
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
 
@@ -663,7 +696,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 disconnect_future.set_result(None)
 
         client.set_disconnected_callback(_resolve_disconnect_callback)
-        if self._device_type == Model.IBT_4WB:
+        if self._device_type in IBT_4WB_PROTOCOL_MODELS:
             # Read battery before subscribing to notifications so the value is
             # stored and included in the very first temperature SensorUpdate.
             try:
@@ -682,7 +715,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # notifying, so a write error must not abort the session.
             with contextlib.suppress(BleakError):
                 await client.write_gatt_char(char_uuid, payload, response=False)
-        if self._device_type == Model.IBT_4WB:
+        if self._device_type in IBT_4WB_PROTOCOL_MODELS:
             self._ibt_4wb_client = client
             keepalive_task = asyncio.create_task(
                 self._async_ibt_4wb_keepalive(client, disconnect_future)
@@ -999,17 +1032,17 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
-        if (
-            self._device_type is None
-            and service_info.name.lower() == MODEL_INFO[Model.IBT_4WB].local_name
+        if self._device_type is None and (
+            detected := NO_ADV_NOTIFY_NAMES.get(service_info.name.lower())
         ):
-            # The IBT-4WB (sold as IBT-24SPH) advertises only a name and the
-            # ff00 service UUID — no manufacturer data — so it must be matched
-            # here, before the manufacturer-data guard below. The match is
-            # scoped to its exact local name so the existing guarded detection
-            # for every other (passive) model is left untouched; the notify
-            # flow (async_start) reads its probes over GATT.
-            self._device_type = Model.IBT_4WB
+            # The IBT-4WB (sold as IBT-24SPH) and its IDT-34c-B sibling
+            # advertise only a name and the ff00 service UUID — no manufacturer
+            # data — so they must be matched here, before the manufacturer-data
+            # guard below. The match is scoped to each exact local name so the
+            # existing guarded detection for every other (passive) model is
+            # left untouched; the notify flow (async_start) reads their probes
+            # over GATT.
+            self._device_type = detected
         if not (manufacturer_data := service_info.manufacturer_data):
             self._set_name_and_manufacturer(service_info)
             return
@@ -1563,4 +1596,5 @@ INKBIRDBluetoothDeviceData._notify_dispatch = {  # noqa: SLF001
     Model.IAM_T1: INKBIRDBluetoothDeviceData._notify_iam_t1,  # noqa: SLF001
     Model.IHT_2PB: INKBIRDBluetoothDeviceData._notify_iht_2pb,  # noqa: SLF001
     Model.IBT_4WB: INKBIRDBluetoothDeviceData._notify_ibt_4wb,  # noqa: SLF001
+    Model.IDT_34C_B: INKBIRDBluetoothDeviceData._notify_ibt_4wb,  # noqa: SLF001
 }
