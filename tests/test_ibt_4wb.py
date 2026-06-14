@@ -835,3 +835,13 @@ async def test_ibt_4wb_battery_read_empty_skips_sensor() -> None:
     # Temperature probe 1 should be present; battery must NOT be present.
     assert DeviceKey("temperature_probe_1", None) in last_update.entity_values
     assert DeviceKey("battery", None) not in last_update.entity_values
+
+
+def test_update_ibt_4wb_notify_no_callback_is_silent() -> None:
+    """_update_ibt_4wb_notify with no update_callback must not raise."""
+    parser = INKBIRDBluetoothDeviceData(Model.IBT_4WB, {}, None, None)
+    service_info = make_ibt_4wb_service_info()
+    parser.update(service_info)
+    payload = make_notify_payload(probe1_f10=680)
+    # Must complete silently even though update_callback is None.
+    parser._notify_callback(MagicMock(), bytearray(payload))  # noqa: SLF001
