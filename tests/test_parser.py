@@ -4517,13 +4517,13 @@ def test_notify_ibt_4wb_skips_invalid_packets() -> None:
 
 
 def test_notify_idt_34c_b_skips_invalid_packets() -> None:
-    """A non-10-byte IDT-34c-B notification is dropped, no update fires.
+    """A non-13-byte IDT-34c-B notification is dropped, no update fires.
 
-    The IDT-34c-B shares the IBT-4WB notify decoder, which length-gates on
-    ``IBT_4WB_DATA_LENGTH`` before unpacking the four signed int16 probe
-    temperatures. A short, empty or over-length frame (truncated BLE packet /
-    protocol mismatch) must produce no sensor update rather than reading past
-    the buffer.
+    The IDT-34c-B shares the IBT-4WB notify decoder, which length-gates on the
+    model-specific frame length (``IDT_34C_B_DATA_LENGTH`` = 13) before
+    unpacking the six signed int16 probe temperatures. A short, empty or
+    over-length frame (truncated BLE packet / protocol mismatch) must produce
+    no sensor update rather than reading past the buffer.
     """
     updates: list[SensorUpdate] = []
 

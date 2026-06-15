@@ -102,7 +102,8 @@ IBT_4WB_WRITE_UUID = UUID("0000ff02-0000-1000-8000-00805f9b34fb")
 IBT_4WB_ACK_UUID = UUID("0000ff03-0000-1000-8000-00805f9b34fb")
 IBT_4WB_BATTERY_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
 IBT_4WB_NO_PROBE = 0x7FFE
-IBT_4WB_DATA_LENGTH = 10
+IBT_4WB_DATA_LENGTH = 10  # 4 probes (8 bytes) + 2 trailing status bytes
+IDT_34C_B_DATA_LENGTH = 13  # 6 probes (12 bytes) + 1 trailing status byte
 
 # Commands are 7-byte payloads written to FF02; the device ACKs on FF03.
 # Byte 0: command type
@@ -120,17 +121,30 @@ IBT_4WB_KEEPALIVE_INTERVAL = 3  # seconds between keepalive state-sync writes
 IBT_4WB_CALIBRATION_MAX_C = 5.0  # maximum calibration offset in °C
 
 # Models that speak the IBT-4WB GATT protocol: the ff00 service with a notify
-# characteristic on ff01 that streams four signed-int16 little-endian probe
+# characteristic on ff01 that streams signed-int16 little-endian probe
 # temperatures in Fahrenheit*10, with 0x7FFE marking an unplugged probe. The
-# IDT-34c-B is a 4-probe sibling sold under a different name; community
-# reverse-engineering (the dpereowei/sciencemadness IDT-34c-B scripts) decodes
-# it with the byte-identical formula `(value - 320) / 18`, which is algebraically
-# the same Fahrenheit*10 -> Celsius conversion, and the same 0x7FFE sentinel.
-# Two independent reverse-engineering efforts (IBT-4WB via #177, IDT-34c-B via
-# the sciencemadness scripts) converging on the same decode is the cross-source
-# confirmation that lets this share one code path.
+# IDT-34c-B is a sibling sold under a different name; community reverse-
+# engineering (the dpereowei/sciencemadness IDT-34c-B scripts) decodes it with
+# the formula `(value - 320) / 18`, algebraically the same Fahrenheit*10 ->
+# Celsius conversion, with the same 0x7FFE sentinel. The shared decode is
+# cross-source confirmed (IBT-4WB via #177, IDT-34c-B via the sciencemadness
+# scripts) AND hardware-confirmed by a live ff01 capture in issue #230.
+#
+# The probe COUNT and frame LENGTH differ per model, though: the IDT-34c-B
+# packs six probes into a 13-byte frame, while the IBT-4WB carries four probes
+# in a 10-byte frame. The #230 capture (6A03 FE7F FE7F 8703 FE7F FE7F 7F, two
+# probes plugged) is the oracle for the IDT-34c-B layout.
 # See https://github.com/Bluetooth-Devices/inkbird-ble/issues/230
 IBT_4WB_PROTOCOL_MODELS = frozenset({Model.IBT_4WB, Model.IDT_34C_B})
+# Per-model probe count and ff01 notify frame length.
+IBT_4WB_PROTOCOL_PROBE_COUNT = {
+    Model.IBT_4WB: 4,
+    Model.IDT_34C_B: 6,
+}
+IBT_4WB_PROTOCOL_DATA_LENGTH = {
+    Model.IBT_4WB: IBT_4WB_DATA_LENGTH,
+    Model.IDT_34C_B: IDT_34C_B_DATA_LENGTH,
+}
 
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
@@ -430,7 +444,7 @@ MODEL_INFO = {
         name="IDT-34c-B",
         model_type=ModelType.SENSOR,
         local_name="idt-34c-b",
-        message_length=IBT_4WB_DATA_LENGTH,
+        message_length=IDT_34C_B_DATA_LENGTH,
         unpacker=None,
         service_uuid=IBT_4WB_SERVICE_UUID,
         characteristic_uuid=None,
@@ -755,16 +769,21 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self, _sender: BleakGATTCharacteristic, data: bytearray
     ) -> None:
         """Dispatch an IBT-4WB notification to the temperature update handler."""
-        if len(data) == IBT_4WB_DATA_LENGTH:
+        expected = IBT_4WB_PROTOCOL_DATA_LENGTH.get(
+            self._device_type, IBT_4WB_DATA_LENGTH
+        )
+        if len(data) == expected:
             self._update_ibt_4wb_notify(bytes(data))
 
     def _update_ibt_4wb_notify(self, data: bytes) -> None:
-        """Update IBT-4WB temperature sensors from a 10-byte notification payload.
+        """Update IBT-4WB-protocol temperature sensors from a notify payload.
 
         The device broadcasts temperatures as Fahrenheit * 10 (signed int16 LE).
-        0x7FFE means no probe connected.
+        0x7FFE means no probe connected. The probe count is model-specific (four
+        for the IBT-4WB, six for the IDT-34c-B).
         """
-        for idx in range(4):
+        probe_count = IBT_4WB_PROTOCOL_PROBE_COUNT.get(self._device_type, 4)
+        for idx in range(probe_count):
             # A single signed read suffices: 0x7FFE (32766) is positive as
             # both signed and unsigned int16, so the sentinel check is identical.
             raw = struct.unpack_from("<h", data, idx * 2)[0]

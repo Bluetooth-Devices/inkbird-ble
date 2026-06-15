@@ -19,7 +19,7 @@ must supply it (notify-only devices).
 | `IHT-2PB`               | 3-probe thermometer     | GATT notify        | local name `Ink@IHT-2PB#…`         | temperature × 3 probes                                              |
 | `INT-11P-B`             | Connected BBQ probe     | GATT poll          | local name `int-11p-b`             | probe temperature, ambient temperature, probe battery, case battery |
 | `IBT-4WB`               | 4-probe BBQ thermometer | GATT notify        | local name `Inkbird@IBT-24SPH`     | temperature × 4 probes, battery                                     |
-| `IDT-34c-B`             | 4-probe BBQ thermometer | GATT notify        | local name `IDT-34c-B`             | temperature × 4 probes, battery                                     |
+| `IDT-34c-B`             | 6-probe BBQ thermometer | GATT notify        | local name `IDT-34c-B`             | temperature × 6 probes, battery                                     |
 | `iBBQ-1`                | BBQ probe (1 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 1                                                     |
 | `iBBQ-2`                | BBQ probe (2 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 2                                                     |
 | `iBBQ-4`                | BBQ probe (4 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 4                                                     |
@@ -47,10 +47,10 @@ must supply it (notify-only devices).
   (`async_ibt_4wb_set_temperature_unit`, `async_ibt_4wb_set_sound_enabled`,
   `async_ibt_4wb_set_brightness`, `async_ibt_4wb_set_calibration`); its probe
   temperatures are transmitted in Fahrenheit and converted to Celsius, and an
-  unplugged probe is published as `None`. `IDT-34c-B` is a 4-probe sibling that
-  shares the same notify protocol (the same decode and keepalive); its support
-  was derived from community reverse-engineering pending confirmation against
-  hardware (see issue [#230]).
+  unplugged probe is published as `None`. `IDT-34c-B` is a 6-probe sibling that
+  shares the same notify decode and keepalive, but packs six probes into a
+  13-byte `ff01` frame (versus the `IBT-4WB`'s four probes in 10 bytes). Its
+  layout was confirmed against a live hardware capture (see issue [#230]).
 
 ## Not supported
 

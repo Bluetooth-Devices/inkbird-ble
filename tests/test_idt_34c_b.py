@@ -1,12 +1,18 @@
-"""Tests for the INKBIRD IDT-34c-B 4-probe BBQ thermometer parser.
+"""Tests for the INKBIRD IDT-34c-B 6-probe BBQ thermometer parser.
 
 The IDT-34c-B is a GATT-notify sibling of the IBT-4WB: it advertises only a
-local name (no manufacturer data) and streams four signed-int16 little-endian
-probe temperatures in Fahrenheit*10 on ``ff01``, with ``0x7FFE`` marking an
-unplugged probe. It therefore reuses the IBT-4WB notify decode and connection
-flow; these tests exercise detection from its distinct local name and the
-shared decode path under the ``IDT_34C_B`` model. See
-https://github.com/Bluetooth-Devices/inkbird-ble/issues/230
+local name (no manufacturer data) and streams signed-int16 little-endian probe
+temperatures in Fahrenheit*10 on ``ff01``, with ``0x7FFE`` marking an unplugged
+probe. It shares the IBT-4WB decode formula and 0x7FFE sentinel, but it carries
+SIX probes in a 13-byte frame (versus the IBT-4WB's four probes in 10 bytes).
+
+The layout is anchored to a live ``ff01`` capture posted by a hardware owner in
+https://github.com/Bluetooth-Devices/inkbird-ble/issues/230:
+
+    6A 03 FE 7F FE 7F 87 03 FE 7F FE 7F 7F  (two probes plugged)
+
+which decodes to probe 1 = 87.4 °F (30.8 °C), probe 4 = 90.3 °F (32.4 °C), the
+remaining four probes unplugged, plus a trailing status byte.
 """
 
 from __future__ import annotations
@@ -23,8 +29,8 @@ from habluetooth import BluetoothServiceInfoBleak
 from sensor_state_data import DeviceKey
 
 from inkbird_ble.parser import (
-    IBT_4WB_DATA_LENGTH,
     IBT_4WB_NO_PROBE,
+    IDT_34C_B_DATA_LENGTH,
     INKBIRDBluetoothDeviceData,
     Model,
 )
@@ -42,6 +48,11 @@ if TYPE_CHECKING:
 IDT_34C_B_ADDRESS = "A4:C1:38:81:F1:4C"
 IDT_34C_B_SHORT_ADDRESS = "F14C"
 IDT_34C_B_NAME = "IDT-34c-B"
+
+# Live ff01 capture from issue #230 (two probes plugged).
+IDT_34C_B_ISSUE_230_CAPTURE = bytes.fromhex("6A03FE7FFE7F8703FE7FFE7F7F")
+
+IDT_34C_B_PROBE_COUNT = 6
 
 
 def make_idt_34c_b_service_info(
@@ -70,16 +81,13 @@ def make_idt_34c_b_service_info(
     )
 
 
-def make_notify_payload(
-    probe1_f10: int | None = None,
-    probe2_f10: int | None = None,
-    probe3_f10: int | None = None,
-    probe4_f10: int | None = None,
-) -> bytes:
-    """Build a 10-byte notification payload.
+def make_notify_payload(*probes_f10: int | None) -> bytes:
+    """Build a 13-byte IDT-34c-B notification payload.
 
-    Each argument is the temperature in Fahrenheit * 10 (signed int16), or
-    None to encode the no-probe sentinel (0x7FFE).
+    Each positional argument is a probe temperature in Fahrenheit * 10 (signed
+    int16), or None to encode the no-probe sentinel (0x7FFE). Up to six probes;
+    omitted probes default to the sentinel. A trailing status byte completes the
+    13-byte frame.
     """
 
     def encode(val: int | None) -> bytes:
@@ -87,13 +95,8 @@ def make_notify_payload(
             return struct.pack("<H", IBT_4WB_NO_PROBE)
         return struct.pack("<h", val)
 
-    return (
-        encode(probe1_f10)
-        + encode(probe2_f10)
-        + encode(probe3_f10)
-        + encode(probe4_f10)
-        + b"\x00\x00"
-    )
+    values = list(probes_f10) + [None] * (IDT_34C_B_PROBE_COUNT - len(probes_f10))
+    return b"".join(encode(v) for v in values[:IDT_34C_B_PROBE_COUNT]) + b"\x7f"
 
 
 # ---------------------------------------------------------------------------
@@ -124,44 +127,87 @@ def test_idt_34c_b_does_not_need_poll() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Decode tests (shared IBT-4WB protocol)
+# Decode tests (shared IBT-4WB protocol, six probes)
 # ---------------------------------------------------------------------------
 
 
-def test_idt_34c_b_notify_two_probes_active() -> None:
-    """Two active probes decode to Celsius; the others report None."""
+def test_idt_34c_b_notify_real_capture_from_issue_230() -> None:
+    """The live ff01 capture from issue #230 decodes to its known probe values."""
     updates: list[SensorUpdate] = []
 
-    def _update_cb(update: SensorUpdate) -> None:
-        updates.append(update)
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IDT_34C_B, {}, updates.append, MagicMock()
+    )
+    parser.update(make_idt_34c_b_service_info())
 
-    parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_cb, MagicMock())
+    parser._notify_callback(  # noqa: SLF001
+        MagicMock(), bytearray(IDT_34C_B_ISSUE_230_CAPTURE)
+    )
+
+    assert len(updates) == 1
+    values = updates[0].entity_values
+    # 87.4 °F -> 30.8 °C on probe 1, 90.3 °F -> 32.4 °C on probe 4.
+    assert values[DeviceKey("temperature_probe_1", None)].native_value == 30.8
+    assert values[DeviceKey("temperature_probe_2", None)].native_value is None
+    assert values[DeviceKey("temperature_probe_3", None)].native_value is None
+    assert values[DeviceKey("temperature_probe_4", None)].native_value == 32.4
+    assert values[DeviceKey("temperature_probe_5", None)].native_value is None
+    assert values[DeviceKey("temperature_probe_6", None)].native_value is None
+
+
+def test_idt_34c_b_notify_two_probes_active() -> None:
+    """Two active probes decode to Celsius; the other four report None."""
+    updates: list[SensorUpdate] = []
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IDT_34C_B, {}, updates.append, MagicMock()
+    )
     parser.update(make_idt_34c_b_service_info())
 
     # 68.0 °F -> 20.0 °C, 212.0 °F -> 100.0 °C
-    payload = make_notify_payload(probe1_f10=680, probe2_f10=2120)
+    payload = make_notify_payload(680, 2120)
     parser._notify_callback(MagicMock(), bytearray(payload))  # noqa: SLF001
 
     assert len(updates) == 1
     values = updates[0].entity_values
     assert values[DeviceKey("temperature_probe_1", None)].native_value == 20.0
     assert values[DeviceKey("temperature_probe_2", None)].native_value == 100.0
-    assert values[DeviceKey("temperature_probe_3", None)].native_value is None
-    assert values[DeviceKey("temperature_probe_4", None)].native_value is None
+    for probe in range(3, IDT_34C_B_PROBE_COUNT + 1):
+        key = DeviceKey(f"temperature_probe_{probe}", None)
+        assert values[key].native_value is None
+
+
+def test_idt_34c_b_notify_six_probes_active() -> None:
+    """All six probes decode independently."""
+    updates: list[SensorUpdate] = []
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IDT_34C_B, {}, updates.append, MagicMock()
+    )
+    parser.update(make_idt_34c_b_service_info())
+
+    # 32 -> 0 °C, 50 -> 10 °C, 68 -> 20 °C, 86 -> 30 °C, 104 -> 40 °C, 122 -> 50 °C
+    payload = make_notify_payload(320, 500, 680, 860, 1040, 1220)
+    parser._notify_callback(MagicMock(), bytearray(payload))  # noqa: SLF001
+
+    values = updates[0].entity_values
+    expected = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0]
+    for idx, want in enumerate(expected, start=1):
+        key = DeviceKey(f"temperature_probe_{idx}", None)
+        assert values[key].native_value == want
 
 
 def test_idt_34c_b_notify_subzero_probe() -> None:
     """A sub-zero probe (signed int16) decodes to a negative Celsius value."""
     updates: list[SensorUpdate] = []
 
-    def _update_cb(update: SensorUpdate) -> None:
-        updates.append(update)
-
-    parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_cb, MagicMock())
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IDT_34C_B, {}, updates.append, MagicMock()
+    )
     parser.update(make_idt_34c_b_service_info())
 
     # 14.0 °F -> -10.0 °C
-    payload = make_notify_payload(probe1_f10=140)
+    payload = make_notify_payload(140)
     parser._notify_callback(MagicMock(), bytearray(payload))  # noqa: SLF001
 
     values = updates[0].entity_values
@@ -172,17 +218,16 @@ def test_idt_34c_b_notify_all_no_probe() -> None:
     """All probes absent -> every probe sensor reports native_value=None."""
     updates: list[SensorUpdate] = []
 
-    def _update_cb(update: SensorUpdate) -> None:
-        updates.append(update)
-
-    parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_cb, MagicMock())
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IDT_34C_B, {}, updates.append, MagicMock()
+    )
     parser.update(make_idt_34c_b_service_info())
 
     parser._notify_callback(MagicMock(), bytearray(make_notify_payload()))  # noqa: SLF001
 
     assert len(updates) == 1
     values = updates[0].entity_values
-    for probe in range(1, 5):
+    for probe in range(1, IDT_34C_B_PROBE_COUNT + 1):
         key = DeviceKey(f"temperature_probe_{probe}", None)
         assert values[key].native_value is None
 
@@ -198,13 +243,13 @@ def test_idt_34c_b_entity_names() -> None:
     parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_cb, MagicMock())
     parser.update(make_idt_34c_b_service_info())
 
-    payload = make_notify_payload(probe1_f10=680, probe2_f10=750)
+    payload = make_notify_payload(680, 750)
     parser._notify_callback(MagicMock(), bytearray(payload))  # noqa: SLF001
 
     assert last_update is not None
     values = last_update.entity_values
     assert values[DeviceKey("temperature_probe_1", None)].name == "Temperature Probe 1"
-    assert values[DeviceKey("temperature_probe_2", None)].name == "Temperature Probe 2"
+    assert values[DeviceKey("temperature_probe_6", None)].name == "Temperature Probe 6"
 
 
 # ---------------------------------------------------------------------------
@@ -225,7 +270,7 @@ async def test_idt_34c_b_async_start_notify_temperatures_and_battery() -> None:
     service_info = make_idt_34c_b_service_info(rssi=-44)
     parser.update(service_info)
 
-    payload = make_notify_payload(probe1_f10=680, probe2_f10=750)
+    payload = make_notify_payload(680, 750)
     disconnect_mock = AsyncMock()
     read_gatt_char_mock = AsyncMock(return_value=b"\x39")  # 57 %
     write_gatt_char_mock = AsyncMock()
@@ -256,12 +301,14 @@ async def test_idt_34c_b_async_start_notify_temperatures_and_battery() -> None:
 
 
 def test_idt_34c_b_wrong_length_notification_ignored() -> None:
-    """Notification payloads that are not exactly 10 bytes are silently dropped."""
+    """Notification payloads that are not exactly 13 bytes are silently dropped."""
     updates: list[SensorUpdate] = []
 
-    def _update_cb(update: SensorUpdate) -> None:
-        updates.append(update)
-
-    parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_cb, MagicMock())
-    parser._notify_callback(MagicMock(), bytearray(IBT_4WB_DATA_LENGTH - 1))  # noqa: SLF001
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IDT_34C_B, {}, updates.append, MagicMock()
+    )
+    # A 10-byte IBT-4WB-sized frame must NOT be accepted for the IDT-34c-B.
+    parser._notify_callback(  # noqa: SLF001
+        MagicMock(), bytearray(IDT_34C_B_DATA_LENGTH - 3)
+    )
     assert updates == []
