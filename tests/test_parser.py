@@ -4539,6 +4539,151 @@ def test_notify_idt_34c_b_skips_invalid_packets() -> None:
     assert updates == []
 
 
+@pytest.mark.asyncio
+async def test_notify_ibt_4wb_temperature_decode() -> None:
+    """IBT-4WB 4-probe decode: temperatures, no-probe sentinel, and battery.
+
+    Payload: four signed int16-LE Fahrenheit x10 values (10 bytes total).
+    The 0x7FFE sentinel signals no probe connected; native_value=None.
+    Battery percentage is read from the 2a19 characteristic before subscribing
+    and must appear in the first SensorUpdate alongside the probe readings.
+
+    Probes used in this test:
+      Probe 1: 752  → 75.2 °F → 24.0 °C
+      Probe 2: 320  → 32.0 °F →  0.0 °C
+      Probe 3: 0x7FFE (no probe)
+      Probe 4: 1112 → 111.2 °F → 44.0 °C
+    """
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IBT_4WB, {}, _update_callback, MagicMock()
+    )
+    service_info = make_bluetooth_service_info(
+        name="inkbird@ibt-24sph",
+        manufacturer_data={},
+        service_uuids=["0000ff00-0000-1000-8000-00805f9b34fb"],
+        address="AA:BB:CC:DD:EE:01",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.uses_notify is True
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytearray], None]
+    ) -> None:
+        # 10-byte frame: 4 probes x 2 bytes (int16-LE F x10) + 2 trailing status bytes
+        callback(
+            uuid,
+            bytearray(b"\xf0\x02\x40\x01\xfe\x7f\x58\x04\x00\x00"),
+        )
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        read_gatt_char=AsyncMock(return_value=bytearray(b"\x64")),  # 100 % battery
+        write_gatt_char=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="AA:BB:CC:DD:EE:01",
+                name="inkbird@ibt-24sph",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    assert updates, "no SensorUpdate was fired"
+    values = {
+        key.key: value.native_value
+        for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] == 24.0
+    assert values["temperature_probe_2"] == 0.0
+    assert values["temperature_probe_3"] is None  # 0x7FFE → no probe
+    assert values["temperature_probe_4"] == 44.0
+    assert values["battery"] == 100  # read from 2a19 before subscribing
+
+
+@pytest.mark.asyncio
+async def test_notify_idt_34c_b_temperature_decode() -> None:
+    """IDT-34c-B 6-probe decode using the real hardware capture from issue #230.
+
+    Raw frame (13 bytes): 6A 03 FE 7F FE 7F 87 03 FE 7F FE 7F 7F
+    Six signed int16-LE Fahrenheit x10 at offsets 0-11, one trailing status byte.
+    Probes 2, 3, 5, and 6 are unplugged (0x7FFE); 1 and 4 carry real readings:
+      Probe 1: 0x036A = 874  → 87.4 °F → 30.8 °C
+      Probe 4: 0x0387 = 903  → 90.3 °F → 32.4 °C
+    """
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IDT_34C_B, {}, _update_callback, MagicMock()
+    )
+    service_info = make_bluetooth_service_info(
+        name="idt-34c-b",
+        manufacturer_data={},
+        service_uuids=["0000ff00-0000-1000-8000-00805f9b34fb"],
+        address="AA:BB:CC:DD:EE:02",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    assert parser.uses_notify is True
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytearray], None]
+    ) -> None:
+        # 13-byte hardware capture: 6 probes x 2 bytes + 1 trailing status byte
+        callback(
+            uuid,
+            bytearray(b"\x6a\x03\xfe\x7f\xfe\x7f\x87\x03\xfe\x7f\xfe\x7f\x7f"),
+        )
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        read_gatt_char=AsyncMock(return_value=bytearray(b"\x4b")),  # 75 % battery
+        write_gatt_char=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="AA:BB:CC:DD:EE:02",
+                name="idt-34c-b",
+                details={},
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    assert updates, "no SensorUpdate was fired"
+    values = {
+        key.key: value.native_value
+        for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] == 30.8
+    assert values["temperature_probe_2"] is None  # 0x7FFE → no probe
+    assert values["temperature_probe_3"] is None  # 0x7FFE → no probe
+    assert values["temperature_probe_4"] == 32.4
+    assert values["temperature_probe_5"] is None  # 0x7FFE → no probe
+    assert values["temperature_probe_6"] is None  # 0x7FFE → no probe
+    assert values["battery"] == 75  # read from 2a19 before subscribing
+
+
 # Notify boundary net — extends the ADV boundary-net pattern
 # (#213/#214/#216) to ``NOTIFY_MODELS``. Each notify model must declare at
 # least one named corrupt-input test, so a future notify protocol added to
