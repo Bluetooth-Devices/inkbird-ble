@@ -4603,8 +4603,7 @@ async def test_notify_ibt_4wb_temperature_decode() -> None:
 
     assert updates, "no SensorUpdate was fired"
     values = {
-        key.key: value.native_value
-        for key, value in updates[-1].entity_values.items()
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
     }
     assert values["temperature_probe_1"] == 24.0
     assert values["temperature_probe_2"] == 0.0
@@ -4672,8 +4671,7 @@ async def test_notify_idt_34c_b_temperature_decode() -> None:
 
     assert updates, "no SensorUpdate was fired"
     values = {
-        key.key: value.native_value
-        for key, value in updates[-1].entity_values.items()
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
     }
     assert values["temperature_probe_1"] == 30.8
     assert values["temperature_probe_2"] is None  # 0x7FFE → no probe
