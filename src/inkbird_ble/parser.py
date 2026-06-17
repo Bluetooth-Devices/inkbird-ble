@@ -769,6 +769,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self, _sender: BleakGATTCharacteristic, data: bytearray
     ) -> None:
         """Dispatch an IBT-4WB notification to the temperature update handler."""
+        if TYPE_CHECKING:
+            assert self._device_type is not None
         expected = IBT_4WB_PROTOCOL_DATA_LENGTH.get(
             self._device_type, IBT_4WB_DATA_LENGTH
         )
@@ -782,6 +784,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         0x7FFE means no probe connected. The probe count is model-specific (four
         for the IBT-4WB, six for the IDT-34c-B).
         """
+        if TYPE_CHECKING:
+            assert self._device_type is not None
         probe_count = IBT_4WB_PROTOCOL_PROBE_COUNT.get(self._device_type, 4)
         for idx in range(probe_count):
             # A single signed read suffices: 0x7FFE (32766) is positive as
