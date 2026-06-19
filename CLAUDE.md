@@ -59,14 +59,15 @@ ruff check` directly; CI runs the real checks.
 
 Every `Model` enum member belongs to exactly **one** of four sets:
 
-| Set | Description |
-|---|---|
-| `BBQ_MODELS` | iBBQ-1/2/4/6 — multi-probe BBQ thermometers, adv only |
-| `SENSOR_MODELS` | Advertisement-based sensors (9-byte: IBS-TH/TH2; 18-byte: IBS-P02B/ITH-11-B/ITH-13-B/ITH-21-B/GENERIC_18; 17-byte: IAM-T2) |
-| `NOTIFY_MODELS` | GATT notification devices (IAM-T1, IHT-2PB) |
-| `GATT_POLL_MODELS` | Poll-only via GATT read (INT-11P-B) |
+| Set                | Description                                                                                                                |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `BBQ_MODELS`       | iBBQ-1/2/4/6 — multi-probe BBQ thermometers, adv only                                                                      |
+| `SENSOR_MODELS`    | Advertisement-based sensors (9-byte: IBS-TH/TH2; 18-byte: IBS-P02B/ITH-11-B/ITH-13-B/ITH-21-B/GENERIC_18; 17-byte: IAM-T2) |
+| `NOTIFY_MODELS`    | GATT notification devices (IAM-T1, IHT-2PB)                                                                                |
+| `GATT_POLL_MODELS` | Poll-only via GATT read (INT-11P-B)                                                                                        |
 
 A meta-test enforces this:
+
 ```python
 assert set(Model) == (BBQ_MODELS | SENSOR_MODELS | NOTIFY_MODELS | GATT_POLL_MODELS)
 ```
@@ -146,6 +147,7 @@ see the `IHT_2PB` prefix check for the pattern.
 ### 6. Boundary-net coverage (meta-tests will fail otherwise)
 
 Every `SENSOR_MODELS` member must add a case in:
+
 - `_ADV_HUMIDITY_BOUNDARY_CASES` (if it reports humidity)
 - `_ADV_TEMPERATURE_BOUNDARY_CASES`
 - `_ADV_BATTERY_BOUNDARY_CASES` (if it reports battery; excludes IAM-T2)
@@ -166,15 +168,16 @@ All raw-byte fields that can overflow on corrupt packets are guarded by
 `_is_<field>_plausible()` helpers. On failure, the **whole packet** is dropped
 (no partial updates).
 
-| Guard | Ceiling | Scope |
-|---|---|---|
-| `_is_humidity_plausible` | 100% | All humidity paths |
-| `_is_temperature_plausible` | ±200 °C | IAM-T1 notify only (ADV uses signed parse) |
-| `_is_battery_plausible` | 100% | All battery paths |
-| `_is_co2_plausible` | 40 000 ppm | IAM-T1 notify |
-| `_is_pressure_plausible` | 1 200 hPa | IAM-T1 notify |
+| Guard                       | Ceiling    | Scope                                      |
+| --------------------------- | ---------- | ------------------------------------------ |
+| `_is_humidity_plausible`    | 100%       | All humidity paths                         |
+| `_is_temperature_plausible` | ±200 °C    | IAM-T1 notify only (ADV uses signed parse) |
+| `_is_battery_plausible`     | 100%       | All battery paths                          |
+| `_is_co2_plausible`         | 40 000 ppm | IAM-T1 notify                              |
+| `_is_pressure_plausible`    | 1 200 hPa  | IAM-T1 notify                              |
 
 **Do not** apply `_is_temperature_plausible` to BBQ probe or IHT-2PB decoders:
+
 - iBBQ probes spec up to ~300 °C — they'd need a higher ceiling.
 - IHT-2PB is a meat/oven probe (legit ≥306 °C); the frame-walker checksum
   already filters garbage.
