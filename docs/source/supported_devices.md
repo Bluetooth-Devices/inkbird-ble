@@ -24,6 +24,7 @@ must supply it (notify-only devices).
 | `iBBQ-4`                | BBQ probe (4 channel) | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 4                                                     |
 | `iBBQ-6`                | BBQ probe (6 channel) | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 6                                                     |
 | `Generic 18 byte model` | Unknown hygrometer    | advertisement      | 18-byte payload + service UUID     | temperature, humidity, battery                                      |
+| `IDT-34c-B`             | 6-probe BBQ thermometer | GATT notify      | local name `idt-34c-b`             | temperature × 6 probes, battery                                     |
 
 ## Transport guide
 
@@ -40,7 +41,10 @@ must supply it (notify-only devices).
 - **GATT notify** — the device pushes readings over a notify characteristic;
   call `async_start(service_info, ble_device)` to subscribe. `IAM-T1` and
   `IHT-2PB` use this transport. `IHT-2PB` additionally requires two
-  activation writes (handled transparently) before it starts streaming.
+  activation writes (handled transparently) before it starts streaming. The
+  `IDT-34c-B` advertises only a name (no manufacturer data), so it is matched
+  by local name; its `ff01` characteristic streams all six probe temperatures
+  in a single notification.
 
 ## Not supported
 
