@@ -102,8 +102,7 @@ async def test_notify_idt_34c_b_temperature_decode() -> None:
 
     assert updates, "expected a temperature update"
     values: dict[str, Any] = {
-        key.key: value.native_value
-        for key, value in updates[-1].entity_values.items()
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
     }
     assert values["temperature_probe_1"] == 30.8
     assert values["temperature_probe_2"] is None
@@ -147,8 +146,7 @@ async def test_notify_idt_34c_b_battery_read_failure_still_emits_temps() -> None
         await parser.async_stop()
 
     values: dict[str, Any] = {
-        key.key: value.native_value
-        for key, value in updates[-1].entity_values.items()
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
     }
     assert values["temperature_probe_1"] == 30.8
     assert "battery" not in values
