@@ -4631,6 +4631,55 @@ def test_adv_battery_boundary_covers_every_battery_reporting_model() -> None:
     assert set(_ADV_BATTERY_BOUNDARY_CASES) == _BATTERY_REPORTING_SENSOR_MODELS
 
 
+@pytest.mark.asyncio
+async def test_notify_idt_34c_b_short_packet_dropped() -> None:
+    """A short / wrong-length IDT-34c-B notification is dropped whole.
+
+    The ff01 frame is a fixed 13 bytes (six int16 probes + a status byte). A
+    truncated read would otherwise slice past the buffer in ``struct`` or, if
+    it happened to be long enough, decode probe temperatures from misaligned
+    bytes. The handler drops any notification whose length is not exactly
+    ``IDT_34C_B_DATA_LENGTH`` rather than emitting a partial / bogus update.
+    """
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_callback, None)
+    service_info = make_bluetooth_service_info(
+        name="IDT-34c-B",
+        manufacturer_data={},
+        service_uuids=["0000ff00-0000-1000-8000-00805f9b34fb"],
+        address="A4:C1:38:81:F1:4C",
+        rssi=-50,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, b"\x6a\x03\xfe\x7f")  # too short -> dropped
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        read_gatt_char=AsyncMock(return_value=b"\x55"),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(address="A4:C1:38:81:F1:4C", name="IDT-34c-B", details={}),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    # The short packet produced no temperature update.
+    assert updates == []
+
+
 # Notify boundary net — extends the ADV boundary-net pattern
 # (#213/#214/#216) to ``NOTIFY_MODELS``. Each notify model must declare at
 # least one named corrupt-input test, so a future notify protocol added to
@@ -4648,6 +4697,7 @@ _NOTIFY_CORRUPT_INPUT_TESTS: dict[Model, tuple[str, ...]] = {
         "test_notify_iam_t1_corrupt_pressure_dropped",
     ),
     Model.IHT_2PB: ("test_notify_iht_2pb_skips_invalid_packets",),
+    Model.IDT_34C_B: ("test_notify_idt_34c_b_short_packet_dropped",),
 }
 
 

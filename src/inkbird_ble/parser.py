@@ -54,6 +54,7 @@ class Model(StrEnum):
     IHT_2PB = "IHT-2PB"
     INT_11P_B = "INT-11P-B"
     INT_11I_B = "INT-11I-B"
+    IDT_34C_B = "IDT-34c-B"
 
 
 class ModelType(Enum):
@@ -199,6 +200,30 @@ INT_11I_B_TEMP_READ_LEN = 2
 INT_11I_B_FULL_READ_LEN = 4
 INT_11I_B_STATION_BATTERY_INDEX = 2
 INT_11I_B_PROBE_BATTERY_INDEX = 3
+
+# IDT-34c-B notify support. This 6-probe BBQ thermometer (a Tuya-based device,
+# MAC prefix A4:C1:38) carries no readings in its advertisement — it only
+# advertises its local name and the ff00 service UUID — so it must be matched
+# by name (see ``NO_ADV_NOTIFY_NAMES``) and read over a GATT notify
+# subscription. The ff01 characteristic broadcasts all six probe temperatures
+# at once as signed little-endian int16 Fahrenheit x 10, followed by a single
+# trailing status byte (13 bytes total); 0x7FFE marks an unplugged probe. The
+# standard 2a19 battery characteristic carries the battery percentage in byte
+# zero.
+#
+# The wire format is confirmed by a live ff01 capture posted on issue #230
+# (``6A 03 FE 7F FE 7F 87 03 FE 7F FE 7F 7F`` -> probe 1 = 87.4 F / 30.8 C,
+# probe 4 = 90.3 F / 32.4 C, the rest unplugged) and matches the independent
+# community reverse-engineering (the dpereowei/sciencemadness IDT-34c-B
+# scripts, which decode the same field as ``(value - 320) / 18``,
+# algebraically the same Fahrenheit x 10 -> Celsius conversion).
+# See https://github.com/Bluetooth-Devices/inkbird-ble/issues/230
+IDT_34C_B_SERVICE_UUID = UUID("0000ff00-0000-1000-8000-00805f9b34fb")
+IDT_34C_B_NOTIFY_UUID = UUID("0000ff01-0000-1000-8000-00805f9b34fb")
+IDT_34C_B_BATTERY_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
+IDT_34C_B_NO_PROBE = 0x7FFE
+IDT_34C_B_PROBE_COUNT = 6
+IDT_34C_B_DATA_LENGTH = 13  # 6 probes (12 bytes) + 1 trailing status byte
 
 MODEL_INFO = {
     Model.IBBQ_1: ModelInfo(
@@ -410,6 +435,24 @@ MODEL_INFO = {
         use_local_name_for_device=False,
         parse_adv=False,
     ),
+    Model.IDT_34C_B: ModelInfo(
+        name="IDT-34c-B",
+        model_type=ModelType.SENSOR,
+        local_name="idt-34c-b",
+        # No usable advertisement payload — the six probe temperatures arrive
+        # over the ff01 notify characteristic. message_length=0 keeps it out of
+        # the adv length / poll dispatch sets; it is matched by name via
+        # NO_ADV_NOTIFY_NAMES before the manufacturer-data guard in
+        # _start_update. The unpacker is unused (notify-only) but ModelInfo
+        # requires one, so the shared placeholder is reused (cf. IHT-2PB).
+        message_length=0,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=IDT_34C_B_SERVICE_UUID,
+        characteristic_uuid=None,
+        notify_uuid=IDT_34C_B_NOTIFY_UUID,
+        use_local_name_for_device=False,
+        parse_adv=False,
+    ),
 }
 
 INKBIRD_NAMES = {
@@ -466,6 +509,13 @@ NOTIFY_MODELS = {
 # data characteristic (no usable advertisement payload). They are not in the
 # length-based SENSOR_MODELS sets, but they must still be polled.
 GATT_POLL_MODELS = {Model.INT_11P_B, Model.INT_11I_B}
+
+# Notify-only models that advertise nothing but a local name (no manufacturer
+# data), so they must be matched by name before the manufacturer-data guard in
+# _start_update. Maps the exact lower-cased local name to its model.
+NO_ADV_NOTIFY_NAMES = {
+    MODEL_INFO[Model.IDT_34C_B].local_name: Model.IDT_34C_B,
+}
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
 
@@ -659,6 +709,39 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 disconnect_future.set_result(None)
 
         client.set_disconnected_callback(_resolve_disconnect_callback)
+        if self._device_type is Model.IDT_34C_B:
+            # Read battery before subscribing so the value is stored and
+            # included in the very first temperature SensorUpdate.
+            try:
+                bat_data = await client.read_gatt_char(IDT_34C_B_BATTERY_UUID)
+                if not bat_data:
+                    _LOGGER.debug("IDT-34c-B battery read returned no data")
+                else:
+                    bat = int(bat_data[0])
+                    # Guard the raw 2a19 byte like every other battery path
+                    # (the #216 boundary-net family): a corrupt/short read or a
+                    # disconnect-glitch first byte (e.g. 0xFF -> 255%) must not
+                    # publish an impossible battery percentage. Mirrors the
+                    # INT-11I-B 2a19 GATT read (#239).
+                    if self._is_battery_plausible(bat):
+                        self.update_predefined_sensor(
+                            SensorLibrary.BATTERY__PERCENTAGE, bat
+                        )
+                    else:
+                        # Log the rejected value so a device persistently
+                        # reporting a bad battery byte leaves a diagnostic
+                        # trail, matching the empty-read / read-failure
+                        # branches above and below.
+                        _LOGGER.debug(
+                            "IDT-34c-B battery read implausible (%d%%), dropped",
+                            bat,
+                        )
+            except (BleakError, TimeoutError) as err:
+                # Best-effort, supplementary read: it runs before start_notify,
+                # so no failure here may prevent the primary temperature notify
+                # subscription. TimeoutError covers a non-BleakError backend
+                # timeout (asyncio.TimeoutError is an alias since 3.11).
+                _LOGGER.debug("IDT-34c-B battery read failed: %s", err)
         await client.start_notify(notify_uuid, self._notify_callback)
         for char_uuid, payload in dev_info.notify_init_writes:
             # Some devices (e.g. IHT-2PB) only start streaming after an
@@ -819,6 +902,46 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             assert self._update_callback is not None
         self._update_callback(self._finish_update())
 
+    def _notify_idt_34c_b(
+        self, _sender: BleakGATTCharacteristic, data: bytearray
+    ) -> None:
+        """Parse an IDT-34c-B notification.
+
+        The ff01 characteristic broadcasts all six probe temperatures at once
+        as signed little-endian int16 Fahrenheit x 10, followed by a single
+        trailing status byte (13 bytes total). 0x7FFE marks an unplugged probe,
+        which is reported as ``None`` so a removed probe clears its sensor
+        rather than reporting a bogus 3276 C. A notification of any other length
+        is corrupt and dropped whole (the #141 corrupt-byte guard family).
+        """
+        if len(data) != IDT_34C_B_DATA_LENGTH:
+            _LOGGER.debug(
+                "IDT-34c-B: unexpected notification length %d (expected %d)",
+                len(data),
+                IDT_34C_B_DATA_LENGTH,
+            )
+            return
+        for idx in range(IDT_34C_B_PROBE_COUNT):
+            # A single signed read suffices: 0x7FFE (32766) is positive as
+            # both signed and unsigned int16, so the sentinel check is identical.
+            raw = struct.unpack_from("<h", data, idx * 2)[0]
+            num = idx + 1
+            key = f"temperature_probe_{num}"
+            name = f"Temperature Probe {num}"
+            if raw == IDT_34C_B_NO_PROBE:
+                self.update_predefined_sensor(
+                    SensorLibrary.TEMPERATURE__CELSIUS, None, key=key, name=name
+                )
+                continue
+            temp_c = round((raw / 10.0 - 32) * 5 / 9, 1)
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS, temp_c, key=key, name=name
+            )
+        if self._update_callback is None:
+            _LOGGER.debug("IDT-34c-B: update_callback not set, dropping update")
+            return
+        self._update_callback(self._finish_update())
+
     _notify_dispatch: ClassVar[
         dict[
             Model | None,
@@ -912,6 +1035,16 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
+        if self._device_type is None and (
+            detected := NO_ADV_NOTIFY_NAMES.get(service_info.name.lower())
+        ):
+            # The IDT-34c-B advertises only its name and the ff00 service UUID —
+            # no manufacturer data — so it must be matched here, before the
+            # manufacturer-data guard below. The match is scoped to the exact
+            # local name so guarded detection for every other model is left
+            # untouched; the notify flow (async_start) reads its probes over
+            # GATT.
+            self._device_type = detected
         if not (manufacturer_data := service_info.manufacturer_data):
             self._set_name_and_manufacturer(service_info)
             return
@@ -1404,4 +1537,5 @@ INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
 INKBIRDBluetoothDeviceData._notify_dispatch = {  # noqa: SLF001
     Model.IAM_T1: INKBIRDBluetoothDeviceData._notify_iam_t1,  # noqa: SLF001
     Model.IHT_2PB: INKBIRDBluetoothDeviceData._notify_iht_2pb,  # noqa: SLF001
+    Model.IDT_34C_B: INKBIRDBluetoothDeviceData._notify_idt_34c_b,  # noqa: SLF001
 }
