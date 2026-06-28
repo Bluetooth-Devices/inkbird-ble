@@ -1360,29 +1360,22 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """
         if self._poll_read_too_short(payload, INT_11I_B_TEMP_READ_LEN):
             return
-        raw_fahrenheit = payload[0] | (payload[1] << 8)
+        (raw_fahrenheit,) = struct.unpack("<H", payload[:INT_11I_B_TEMP_READ_LEN])
         celsius = round(((raw_fahrenheit / 100.0) - 32.0) * 5.0 / 9.0, 1)
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, celsius)
         if len(payload) < INT_11I_B_FULL_READ_LEN:
             # Battery characteristic was absent or returned a short read; the
             # temperature above is still valid, so emit it without batteries.
             return
-        station_battery = payload[INT_11I_B_STATION_BATTERY_INDEX]
-        probe_battery = payload[INT_11I_B_PROBE_BATTERY_INDEX]
-        if self._is_battery_plausible(station_battery):
-            self.update_predefined_sensor(
-                SensorLibrary.BATTERY__PERCENTAGE,
-                station_battery,
-                key="station_battery",
-                name="Station Battery",
-            )
-        if self._is_battery_plausible(probe_battery):
-            self.update_predefined_sensor(
-                SensorLibrary.BATTERY__PERCENTAGE,
-                probe_battery,
-                key="probe_battery",
-                name="Probe Battery",
-            )
+        for index, key, name in (
+            (INT_11I_B_STATION_BATTERY_INDEX, "station_battery", "Station Battery"),
+            (INT_11I_B_PROBE_BATTERY_INDEX, "probe_battery", "Probe Battery"),
+        ):
+            battery = payload[index]
+            if self._is_battery_plausible(battery):
+                self.update_predefined_sensor(
+                    SensorLibrary.BATTERY__PERCENTAGE, battery, key=key, name=name
+                )
 
     _device_type_dispatch: ClassVar[
         dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
