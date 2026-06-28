@@ -24,13 +24,14 @@ from bluetooth_data_tools import (
     monotonic_time_coarse,
     short_address,
 )
-from bluetooth_sensor_state_data import BluetoothData, SensorUpdate
+from bluetooth_sensor_state_data import BluetoothData
 from sensor_state_data import SensorLibrary, Units
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterable
 
     from bleak import BleakGATTCharacteristic, BLEDevice
+    from bluetooth_sensor_state_data import SensorUpdate
     from habluetooth import BluetoothServiceInfoBleak
 
 
@@ -53,6 +54,8 @@ class Model(StrEnum):
     IAM_T2 = "IAM-T2"
     IHT_2PB = "IHT-2PB"
     INT_11P_B = "INT-11P-B"
+    IBT_4WB = "IBT-4WB"
+    IDT_34C_B = "IDT-34c-B"
 
 
 class ModelType(Enum):
@@ -68,7 +71,7 @@ class ModelInfo:
     model_type: ModelType
     local_name: str | None
     message_length: int
-    unpacker: Callable[[bytes], tuple[int, ...]]
+    unpacker: Callable[[bytes], tuple[int, ...]] | None
     service_uuid: UUID | None
     characteristic_uuid: UUID | None
     notify_uuid: UUID | None
@@ -93,6 +96,55 @@ EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID(
 )
 NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID("0000fff2-0000-1000-8000-00805f9b34fb")
 IAM_T1_CHARACTERISTIC_UUID = UUID("0000fff4-0000-1000-8000-00805f9b34fb")
+IBT_4WB_SERVICE_UUID = UUID("0000ff00-0000-1000-8000-00805f9b34fb")
+IBT_4WB_NOTIFY_UUID = UUID("0000ff01-0000-1000-8000-00805f9b34fb")
+IBT_4WB_WRITE_UUID = UUID("0000ff02-0000-1000-8000-00805f9b34fb")
+IBT_4WB_ACK_UUID = UUID("0000ff03-0000-1000-8000-00805f9b34fb")
+IBT_4WB_BATTERY_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
+IBT_4WB_NO_PROBE = 0x7FFE
+IBT_4WB_DATA_LENGTH = 10  # 4 probes (8 bytes) + 2 trailing status bytes
+IDT_34C_B_DATA_LENGTH = 13  # 6 probes (12 bytes) + 1 trailing status byte
+
+# Commands are 7-byte payloads written to FF02; the device ACKs on FF03.
+# Byte 0: command type
+# Byte 1: parameter (or probe bitmask for calibration)
+# Bytes 2-5: additional parameters
+# Byte 6: 0x00 terminator
+IBT_4WB_CMD_UNIT_C = b"\x03\x43\x00\x00\x00\x00\x00"  # display °C
+IBT_4WB_CMD_UNIT_F = b"\x03\x46\x00\x00\x00\x00\x00"  # display °F
+IBT_4WB_CMD_SOUND_ON = b"\x0b\x5a\x00\x00\x00\x00\x00"  # un-mute / beeper on
+IBT_4WB_CMD_SOUND_OFF = b"\x0b\x11\x00\x00\x00\x00\x00"  # mute / beeper off
+# State-sync: asks the device to ACK with current calibration values.
+# Also serves as keepalive -- the Inkbird app sends this after every write.
+IBT_4WB_CMD_STATE_SYNC = b"\x0a\x0f\x00\x00\x00\x00\x00"
+IBT_4WB_KEEPALIVE_INTERVAL = 3  # seconds between keepalive state-sync writes
+IBT_4WB_CALIBRATION_MAX_C = 5.0  # maximum calibration offset in °C
+
+# Models that speak the IBT-4WB GATT protocol: the ff00 service with a notify
+# characteristic on ff01 that streams signed-int16 little-endian probe
+# temperatures in Fahrenheit*10, with 0x7FFE marking an unplugged probe. The
+# IDT-34c-B is a sibling sold under a different name; community reverse-
+# engineering (the dpereowei/sciencemadness IDT-34c-B scripts) decodes it with
+# the formula `(value - 320) / 18`, algebraically the same Fahrenheit*10 ->
+# Celsius conversion, with the same 0x7FFE sentinel. The shared decode is
+# cross-source confirmed (IBT-4WB via #177, IDT-34c-B via the sciencemadness
+# scripts) AND hardware-confirmed by a live ff01 capture in issue #230.
+#
+# The probe COUNT and frame LENGTH differ per model, though: the IDT-34c-B
+# packs six probes into a 13-byte frame, while the IBT-4WB carries four probes
+# in a 10-byte frame. The #230 capture (6A03 FE7F FE7F 8703 FE7F FE7F 7F, two
+# probes plugged) is the oracle for the IDT-34c-B layout.
+# See https://github.com/Bluetooth-Devices/inkbird-ble/issues/230
+IBT_4WB_PROTOCOL_MODELS = frozenset({Model.IBT_4WB, Model.IDT_34C_B})
+# Per-model probe count and ff01 notify frame length.
+IBT_4WB_PROTOCOL_PROBE_COUNT = {
+    Model.IBT_4WB: 4,
+    Model.IDT_34C_B: 6,
+}
+IBT_4WB_PROTOCOL_DATA_LENGTH = {
+    Model.IBT_4WB: IBT_4WB_DATA_LENGTH,
+    Model.IDT_34C_B: IDT_34C_B_DATA_LENGTH,
+}
 
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
@@ -376,6 +428,30 @@ MODEL_INFO = {
         use_local_name_for_device=False,
         parse_adv=False,
     ),
+    Model.IBT_4WB: ModelInfo(
+        name="IBT-4WB",
+        model_type=ModelType.SENSOR,
+        local_name="inkbird@ibt-24sph",
+        message_length=IBT_4WB_DATA_LENGTH,
+        unpacker=None,
+        service_uuid=IBT_4WB_SERVICE_UUID,
+        characteristic_uuid=None,
+        notify_uuid=IBT_4WB_NOTIFY_UUID,
+        use_local_name_for_device=False,
+        parse_adv=False,
+    ),
+    Model.IDT_34C_B: ModelInfo(
+        name="IDT-34c-B",
+        model_type=ModelType.SENSOR,
+        local_name="idt-34c-b",
+        message_length=IDT_34C_B_DATA_LENGTH,
+        unpacker=None,
+        service_uuid=IBT_4WB_SERVICE_UUID,
+        characteristic_uuid=None,
+        notify_uuid=IBT_4WB_NOTIFY_UUID,
+        use_local_name_for_device=False,
+        parse_adv=False,
+    ),
 }
 
 INKBIRD_NAMES = {
@@ -432,6 +508,13 @@ NOTIFY_MODELS = {
 # data characteristic (no usable advertisement payload). They are not in the
 # length-based SENSOR_MODELS sets, but they must still be polled.
 GATT_POLL_MODELS = {Model.INT_11P_B}
+
+# Notify-only models that advertise nothing but a local name (no manufacturer
+# data), so they must be matched by name before the manufacturer-data guard in
+# _start_update. Maps the exact lower-cased local name to its model.
+NO_ADV_NOTIFY_NAMES = {
+    MODEL_INFO[model].local_name: model for model in IBT_4WB_PROTOCOL_MODELS
+}
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
 
@@ -567,6 +650,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # Last time we got a full update from ADV data
         self._last_full_update = 0.0
         self._notify_task: asyncio.Task[None] | None = None
+        self._ibt_4wb_client: BleakClientWithServiceCache | None = None
+        self._ibt_4wb_write_lock: asyncio.Lock = asyncio.Lock()
         self._running = True
         self._device_data = device_data.copy() if device_data else {}
         self._update_callback = update_callback
@@ -618,13 +703,24 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         dev_info = MODEL_INFO[self._device_type]
         notify_uuid = dev_info.notify_uuid
         loop = asyncio.get_running_loop()
-        disconnect_future = loop.create_future()
+        disconnect_future: asyncio.Future[None] = loop.create_future()
 
         def _resolve_disconnect_callback(_: BleakClientWithServiceCache) -> None:
             if not disconnect_future.done():
                 disconnect_future.set_result(None)
 
         client.set_disconnected_callback(_resolve_disconnect_callback)
+        if self._device_type in IBT_4WB_PROTOCOL_MODELS:
+            # Read battery before subscribing to notifications so the value is
+            # stored and included in the very first temperature SensorUpdate.
+            try:
+                bat_data = await client.read_gatt_char(IBT_4WB_BATTERY_UUID)
+                if bat_data:
+                    self.update_predefined_sensor(
+                        SensorLibrary.BATTERY__PERCENTAGE, int(bat_data[0])
+                    )
+            except BleakError as err:
+                _LOGGER.debug("IBT-4WB battery read failed: %s", err)
         await client.start_notify(notify_uuid, self._notify_callback)
         for char_uuid, payload in dev_info.notify_init_writes:
             # Some devices (e.g. IHT-2PB) only start streaming after an
@@ -633,7 +729,89 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # notifying, so a write error must not abort the session.
             with contextlib.suppress(BleakError):
                 await client.write_gatt_char(char_uuid, payload, response=False)
-        await disconnect_future  # wait for disconnect
+        if self._device_type in IBT_4WB_PROTOCOL_MODELS:
+            self._ibt_4wb_client = client
+            keepalive_task = asyncio.create_task(
+                self._async_ibt_4wb_keepalive(client, disconnect_future)
+            )
+            try:
+                await disconnect_future
+            finally:
+                self._ibt_4wb_client = None
+                keepalive_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await keepalive_task
+        else:
+            await disconnect_future  # wait for disconnect
+
+    async def _async_ibt_4wb_keepalive(
+        self,
+        client: BleakClientWithServiceCache,
+        disconnect_future: asyncio.Future[None],
+    ) -> None:
+        """Send periodic state-sync writes to FF02 to maintain the BLE link.
+
+        The Inkbird app uses the 0x0A state-sync command as its heartbeat.
+        The device ACKs on FF03 with the current calibration values.
+        """
+        while not disconnect_future.done():
+            try:
+                async with self._ibt_4wb_write_lock:
+                    await client.write_gatt_char(
+                        IBT_4WB_WRITE_UUID, IBT_4WB_CMD_STATE_SYNC, response=False
+                    )
+            except BleakError as err:
+                _LOGGER.debug("IBT-4WB keepalive write failed: %s", err)
+                break
+            await asyncio.sleep(IBT_4WB_KEEPALIVE_INTERVAL)
+
+    def _notify_ibt_4wb(
+        self, _sender: BleakGATTCharacteristic, data: bytearray
+    ) -> None:
+        """Dispatch an IBT-4WB notification to the temperature update handler."""
+        if TYPE_CHECKING:
+            assert self._device_type is not None
+        expected = IBT_4WB_PROTOCOL_DATA_LENGTH.get(
+            self._device_type, IBT_4WB_DATA_LENGTH
+        )
+        if len(data) == expected:
+            self._update_ibt_4wb_notify(bytes(data))
+
+    def _update_ibt_4wb_notify(self, data: bytes) -> None:
+        """Update IBT-4WB-protocol temperature sensors from a notify payload.
+
+        The device broadcasts temperatures as Fahrenheit * 10 (signed int16 LE).
+        0x7FFE means no probe connected. The probe count is model-specific (four
+        for the IBT-4WB, six for the IDT-34c-B).
+        """
+        if TYPE_CHECKING:
+            assert self._device_type is not None
+        probe_count = IBT_4WB_PROTOCOL_PROBE_COUNT.get(self._device_type, 4)
+        for idx in range(probe_count):
+            # A single signed read suffices: 0x7FFE (32766) is positive as
+            # both signed and unsigned int16, so the sentinel check is identical.
+            raw = struct.unpack_from("<h", data, idx * 2)[0]
+            num = idx + 1
+            if raw == IBT_4WB_NO_PROBE:
+                self.update_predefined_sensor(
+                    SensorLibrary.TEMPERATURE__CELSIUS,
+                    None,
+                    key=f"temperature_probe_{num}",
+                    name=f"Temperature Probe {num}",
+                )
+                continue
+            temp_f = raw / 10.0
+            temp_c = round((temp_f - 32) * 5 / 9, 1)
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS,
+                temp_c,
+                key=f"temperature_probe_{num}",
+                name=f"Temperature Probe {num}",
+            )
+        if self._update_callback is None:
+            _LOGGER.debug("IBT-4WB: update_callback not set, dropping update")
+            return
+        self._update_callback(self._finish_update())
 
     def _notify_callback(
         self, sender: BleakGATTCharacteristic, data: bytearray
@@ -877,6 +1055,17 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("Parsing inkbird BLE advertisement data: %s", service_info)
+        if self._device_type is None and (
+            detected := NO_ADV_NOTIFY_NAMES.get(service_info.name.lower())
+        ):
+            # The IBT-4WB (sold as IBT-24SPH) and its IDT-34c-B sibling
+            # advertise only a name and the ff00 service UUID — no manufacturer
+            # data — so they must be matched here, before the manufacturer-data
+            # guard below. The match is scoped to each exact local name so the
+            # existing guarded detection for every other (passive) model is
+            # left untouched; the notify flow (async_start) reads their probes
+            # over GATT.
+            self._device_type = detected
         if not (manufacturer_data := service_info.manufacturer_data):
             self._set_name_and_manufacturer(service_info)
             return
@@ -1018,13 +1207,27 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             self._update_int_11p_b_from_raw(payload)
         return self._finish_update()
 
+    def _unpacker(self) -> Callable[[bytes], tuple[int, ...]]:
+        """Return the manufacturer-data unpacker for the current model.
+
+        Only ``parse_adv`` models reach the decode paths, and they always
+        define an unpacker; notify-only models (e.g. IBT-4WB) carry
+        ``unpacker=None`` and never get here, so the value is non-None.
+        """
+        if TYPE_CHECKING:
+            assert self._device_type is not None
+        unpacker = MODEL_INFO[self._device_type].unpacker
+        if TYPE_CHECKING:
+            assert unpacker is not None
+        return unpacker
+
     def _update_bbq_model(self, data: bytes, _msg_length: int) -> None:
         """Update a BBQ sensor model."""
         # Some are iBBQ, some are xBBQ
         if TYPE_CHECKING:
             assert self._device_type is not None
         xvalue = data[10:]
-        for idx, temp in enumerate(MODEL_INFO[self._device_type].unpacker(xvalue)):
+        for idx, temp in enumerate(self._unpacker()(xvalue)):
             if temp in BBQ_PROBE_NOT_CONNECTED:
                 # Probe not plugged in; skip it instead of reporting 6553.5°C.
                 continue
@@ -1045,7 +1248,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     ) -> None:
         if TYPE_CHECKING:
             assert self._device_type is not None
-        temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
+        temp, hum = self._unpacker()(temp_hum_bytes)
         # Only some models report humidity: IBS-TH always, IBS-TH2 when non-zero.
         reports_humidity = self._device_type == Model.IBS_TH or (
             self._device_type == Model.IBS_TH2 and hum != 0
@@ -1179,7 +1382,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """Update the sensor values for a 18 byte model."""
         if TYPE_CHECKING:
             assert self._device_type is not None
-        temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
+        temp, hum = self._unpacker()(temp_hum_bytes)
         humidity = hum / 10
         if not self._is_humidity_plausible(humidity):
             return
@@ -1281,6 +1484,113 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             name="Case Battery",
         )
 
+    # ------------------------------------------------------------------
+    # IBT-4WB write commands
+    # ------------------------------------------------------------------
+
+    async def async_ibt_4wb_set_temperature_unit(
+        self, ble_device: BLEDevice, celsius: bool
+    ) -> None:
+        """Set the temperature display unit on the IBT-4WB.
+
+        Note: the device always transmits temperatures internally as
+        Fahrenheit * 10; this command only changes what the device's
+        own screen displays.
+        """
+        cmd = IBT_4WB_CMD_UNIT_C if celsius else IBT_4WB_CMD_UNIT_F
+        await self._async_ibt_4wb_write(ble_device, cmd)
+
+    async def async_ibt_4wb_set_sound_enabled(
+        self, ble_device: BLEDevice, enabled: bool
+    ) -> None:
+        """Enable or disable the IBT-4WB beeper / alarm sound."""
+        cmd = IBT_4WB_CMD_SOUND_ON if enabled else IBT_4WB_CMD_SOUND_OFF
+        await self._async_ibt_4wb_write(ble_device, cmd)
+
+    async def async_ibt_4wb_set_brightness(
+        self, ble_device: BLEDevice, level: int
+    ) -> None:
+        """Set the IBT-4WB screen brightness (0-100 %).
+
+        The device accepts values 0-100 decimal in byte 1.
+        In practice the Inkbird app clips the minimum to 4.
+        """
+        level = max(0, min(100, level))
+        cmd = bytes([0x05, level, 0x00, 0x00, 0x00, 0x00, 0x00])
+        await self._async_ibt_4wb_write(ble_device, cmd)
+
+    async def async_ibt_4wb_set_calibration(
+        self,
+        ble_device: BLEDevice,
+        offsets_celsius: dict[int, float],
+    ) -> None:
+        """Set per-probe temperature calibration offsets (in °C).
+
+        ``offsets_celsius`` maps probe number (1-4) to offset in °C.
+        Offsets are converted to the device's native 0.1 °F unit using
+        ``int(celsius * 9/5 * 10)`` (truncation toward zero, matching
+        the Inkbird app's behaviour).
+
+        Example::
+
+            await data.async_ibt_4wb_set_calibration(
+                ble_device, {1: -0.1, 2: 0.0, 3: 0.5}
+            )
+        """
+        if not offsets_celsius:
+            return
+        probe_to_bit = {1: 0x01, 2: 0x02, 3: 0x04, 4: 0x08}
+        mask = 0
+        cal: list[int] = [0, 0, 0, 0]  # indices 0-3 -> probes 1-4
+        for probe_num, offset_c in offsets_celsius.items():
+            if probe_num not in probe_to_bit:
+                msg = f"probe_num must be 1-4, got {probe_num!r}"
+                raise ValueError(msg)
+            lo, hi = -IBT_4WB_CALIBRATION_MAX_C, IBT_4WB_CALIBRATION_MAX_C
+            if not (lo <= offset_c <= hi):
+                msg = (
+                    f"offset_c must be in"
+                    f" -{IBT_4WB_CALIBRATION_MAX_C}..+{IBT_4WB_CALIBRATION_MAX_C} C,"
+                    f" got {offset_c!r}"
+                )
+                raise ValueError(msg)
+            mask |= probe_to_bit[probe_num]
+            # Convert °C offset -> 0.1 °F units, truncate toward zero
+            raw = int(offset_c * 9 / 5 * 10)
+            cal[probe_num - 1] = raw & 0xFF  # to unsigned byte
+        cmd = bytes([0x09, mask, cal[0], cal[1], cal[2], cal[3], 0x00])
+        await self._async_ibt_4wb_write(ble_device, cmd)
+
+    async def _async_ibt_4wb_write(self, ble_device: BLEDevice, cmd: bytes) -> None:
+        """Write a command to FF02 then send the state-sync to get an ACK.
+
+        Reuses the persistent keepalive connection if it is still active to
+        avoid triggering an ``InProgress`` error from BlueZ when a second
+        connection attempt is made while the keepalive loop is running.
+        """
+        # Capture the client in a local: acquiring the write lock may suspend
+        # (the keepalive holds the same lock), and a disconnect during that
+        # suspension nulls ``self._ibt_4wb_client`` in ``_async_notify_action``'s
+        # finally. Using a stale handle surfaces a clean BleakError instead of
+        # an AttributeError on ``None``.
+        client = self._ibt_4wb_client
+        if client is not None and client.is_connected:
+            async with self._ibt_4wb_write_lock:
+                await client.write_gatt_char(IBT_4WB_WRITE_UUID, cmd, response=True)
+                await client.write_gatt_char(
+                    IBT_4WB_WRITE_UUID, IBT_4WB_CMD_STATE_SYNC, response=True
+                )
+            return
+
+        async def _action(action_client: BleakClientWithServiceCache) -> bytes | None:
+            await action_client.write_gatt_char(IBT_4WB_WRITE_UUID, cmd, response=True)
+            await action_client.write_gatt_char(
+                IBT_4WB_WRITE_UUID, IBT_4WB_CMD_STATE_SYNC, response=True
+            )
+            return None
+
+        await async_connect_action(ble_device, _action)
+
     _device_type_dispatch: ClassVar[
         dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
     ]
@@ -1308,4 +1618,6 @@ INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
 INKBIRDBluetoothDeviceData._notify_dispatch = {  # noqa: SLF001
     Model.IAM_T1: INKBIRDBluetoothDeviceData._notify_iam_t1,  # noqa: SLF001
     Model.IHT_2PB: INKBIRDBluetoothDeviceData._notify_iht_2pb,  # noqa: SLF001
+    Model.IBT_4WB: INKBIRDBluetoothDeviceData._notify_ibt_4wb,  # noqa: SLF001
+    Model.IDT_34C_B: INKBIRDBluetoothDeviceData._notify_ibt_4wb,  # noqa: SLF001
 }
