@@ -727,6 +727,15 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                         self.update_predefined_sensor(
                             SensorLibrary.BATTERY__PERCENTAGE, bat
                         )
+                    else:
+                        # Log the rejected value so a device persistently
+                        # reporting a bad battery byte leaves a diagnostic
+                        # trail, matching the empty-read / read-failure
+                        # branches above and below.
+                        _LOGGER.debug(
+                            "IDT-34c-B battery read implausible (%d%%), dropped",
+                            bat,
+                        )
             except (BleakError, TimeoutError) as err:
                 # Best-effort, supplementary read: it runs before start_notify,
                 # so no failure here may prevent the primary temperature notify

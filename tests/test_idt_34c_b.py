@@ -153,6 +153,123 @@ async def test_notify_idt_34c_b_battery_read_failure_still_emits_temps() -> None
 
 
 @pytest.mark.asyncio
+async def test_notify_idt_34c_b_battery_empty_read_omits_battery() -> None:
+    """An empty 2a19 read logs and omits battery, but temps still emit."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_callback, None)
+    service_info = _service_info()
+    parser.update(service_info)
+
+    capture = bytes.fromhex("6a03fe7ffe7f8703fe7ffe7f7f")
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, capture)
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        read_gatt_char=AsyncMock(return_value=b""),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(address="A4:C1:38:81:F1:4C", name="IDT-34c-B", details={}),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    values: dict[str, Any] = {
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] == 30.8
+    assert "battery" not in values
+
+
+@pytest.mark.asyncio
+async def test_notify_idt_34c_b_implausible_battery_dropped() -> None:
+    """An implausible (>100%) first battery byte is dropped; temps still emit."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_callback, None)
+    service_info = _service_info()
+    parser.update(service_info)
+
+    capture = bytes.fromhex("6a03fe7ffe7f8703fe7ffe7f7f")
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, capture)
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        read_gatt_char=AsyncMock(return_value=b"\xff"),  # 255% -> implausible
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(address="A4:C1:38:81:F1:4C", name="IDT-34c-B", details={}),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    values: dict[str, Any] = {
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] == 30.8
+    assert "battery" not in values
+
+
+@pytest.mark.asyncio
+async def test_notify_idt_34c_b_battery_timeout_still_emits_temps() -> None:
+    """A TimeoutError on the battery read must not abort the temperature update."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_callback, None)
+    service_info = _service_info()
+    parser.update(service_info)
+
+    capture = bytes.fromhex("6a03fe7ffe7f8703fe7ffe7f7f")
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, capture)
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        read_gatt_char=AsyncMock(side_effect=TimeoutError()),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(address="A4:C1:38:81:F1:4C", name="IDT-34c-B", details={}),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    values: dict[str, Any] = {
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] == 30.8
+    assert "battery" not in values
+
+
+@pytest.mark.asyncio
 async def test_notify_idt_34c_b_without_update_callback() -> None:
     """A notification with no update callback set is dropped without error."""
     parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {})
