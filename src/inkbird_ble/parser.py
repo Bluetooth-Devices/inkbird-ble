@@ -714,11 +714,24 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # included in the very first temperature SensorUpdate.
             try:
                 bat_data = await client.read_gatt_char(IDT_34C_B_BATTERY_UUID)
-                if bat_data:
-                    self.update_predefined_sensor(
-                        SensorLibrary.BATTERY__PERCENTAGE, int(bat_data[0])
-                    )
-            except BleakError as err:
+                if not bat_data:
+                    _LOGGER.debug("IDT-34c-B battery read returned no data")
+                else:
+                    bat = int(bat_data[0])
+                    # Guard the raw 2a19 byte like every other battery path
+                    # (the #216 boundary-net family): a corrupt/short read or a
+                    # disconnect-glitch first byte (e.g. 0xFF -> 255%) must not
+                    # publish an impossible battery percentage. Mirrors the
+                    # INT-11I-B 2a19 GATT read (#239).
+                    if self._is_battery_plausible(bat):
+                        self.update_predefined_sensor(
+                            SensorLibrary.BATTERY__PERCENTAGE, bat
+                        )
+            except (BleakError, TimeoutError) as err:
+                # Best-effort, supplementary read: it runs before start_notify,
+                # so no failure here may prevent the primary temperature notify
+                # subscription. TimeoutError covers a non-BleakError backend
+                # timeout (asyncio.TimeoutError is an alias since 3.11).
                 _LOGGER.debug("IDT-34c-B battery read failed: %s", err)
         await client.start_notify(notify_uuid, self._notify_callback)
         for char_uuid, payload in dev_info.notify_init_writes:
