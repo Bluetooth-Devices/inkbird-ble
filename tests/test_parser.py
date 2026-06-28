@@ -28,6 +28,7 @@ from inkbird_ble import Model as PublicModel
 from inkbird_ble.parser import (
     BBQ_MODELS,
     GATT_POLL_MODELS,
+    IBT_4WB_DATA_LENGTH,
     IHT_2PB_NOTIFY_UUID,
     IHT_2PB_WRITE_UUID,
     MAX_PLAUSIBLE_BATTERY_PERCENTAGE,
@@ -4494,6 +4495,52 @@ def test_adv_battery_boundary_covers_every_battery_reporting_model() -> None:
     assert set(_ADV_BATTERY_BOUNDARY_CASES) == _BATTERY_REPORTING_SENSOR_MODELS
 
 
+@pytest.mark.asyncio
+async def test_notify_ibt_4wb_wrong_length_ignored() -> None:
+    """Notifications that are not exactly IBT_4WB_DATA_LENGTH bytes are dropped."""
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IBT_4WB, {}, _update_callback, None)
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, b"\x00" * (IBT_4WB_DATA_LENGTH - 1))  # too short
+        callback(uuid, b"\x00" * (IBT_4WB_DATA_LENGTH + 1))  # too long
+        callback(uuid, b"")  # empty
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        read_gatt_char=AsyncMock(return_value=b"\x64"),
+        write_gatt_char=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    service_info = make_bluetooth_service_info(
+        name="Inkbird@IBT-24SPH",
+        manufacturer_data={},
+        service_uuids=["0000ff00-0000-1000-8000-00805f9b34fb"],
+        address="40:79:12:1A:B4:56",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(
+                address="40:79:12:1A:B4:56", name="Inkbird@IBT-24SPH", details={}
+            ),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+
+    # Wrong-length packets must not produce any temperature update.
+    assert updates == []
+
+
 # Notify boundary net — extends the ADV boundary-net pattern
 # (#213/#214/#216) to ``NOTIFY_MODELS``. Each notify model must declare at
 # least one named corrupt-input test, so a future notify protocol added to
@@ -4511,6 +4558,7 @@ _NOTIFY_CORRUPT_INPUT_TESTS: dict[Model, tuple[str, ...]] = {
         "test_notify_iam_t1_corrupt_pressure_dropped",
     ),
     Model.IHT_2PB: ("test_notify_iht_2pb_skips_invalid_packets",),
+    Model.IBT_4WB: ("test_notify_ibt_4wb_wrong_length_ignored",),
 }
 
 
