@@ -53,6 +53,7 @@ class Model(StrEnum):
     IAM_T2 = "IAM-T2"
     IHT_2PB = "IHT-2PB"
     INT_11P_B = "INT-11P-B"
+    INT_11I_B = "INT-11I-B"
 
 
 class ModelType(Enum):
@@ -181,6 +182,23 @@ INT_11P_B_AMBIENT_TEMP_INDEX = 3
 INT_11P_B_PROBE_BATTERY_INDEX = 4
 INT_11P_B_CASE_BATTERY_INDEX = 5
 INT_11P_B_BATTERY_MASK = 0x7F
+
+# INT-11I-B GATT support. Like the INT-11P-B this connectable probe carries no
+# readings in its advertisement (only used for discovery); the values are read
+# from two characteristics on the ``ff00`` service. The byte layout is taken
+# directly from the working community ESPHome config posted on issue #238 (the
+# in-band reference that lets us ship a verified scale rather than a guess.
+# The ff01 temperature characteristic holds a little-endian uint16 of
+# Fahrenheit hundredths; converting to Celsius subtracts 32 then scales by
+# five-ninths. The standard 2a19 battery characteristic carries the base
+# station percentage in byte zero and the probe percentage in byte one.
+INT_11I_B_SERVICE_UUID = UUID("0000ff00-0000-1000-8000-00805f9b34fb")
+INT_11I_B_TEMP_CHARACTERISTIC_UUID = UUID("0000ff01-0000-1000-8000-00805f9b34fb")
+INT_11I_B_BATTERY_CHARACTERISTIC_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
+INT_11I_B_TEMP_READ_LEN = 2
+INT_11I_B_FULL_READ_LEN = 4
+INT_11I_B_STATION_BATTERY_INDEX = 2
+INT_11I_B_PROBE_BATTERY_INDEX = 3
 
 MODEL_INFO = {
     Model.IBBQ_1: ModelInfo(
@@ -376,6 +394,22 @@ MODEL_INFO = {
         use_local_name_for_device=False,
         parse_adv=False,
     ),
+    Model.INT_11I_B: ModelInfo(
+        name="INT-11I-B",
+        model_type=ModelType.SENSOR,
+        local_name="int-11i-b",
+        # No usable advertisement payload — temperature and battery are read
+        # from the ff01 / 2a19 characteristics. message_length=0 keeps it out
+        # of the adv length / passive dispatch sets; polling is enabled via
+        # GATT_POLL_MODELS.
+        message_length=0,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=INT_11I_B_SERVICE_UUID,
+        characteristic_uuid=INT_11I_B_TEMP_CHARACTERISTIC_UUID,
+        notify_uuid=None,
+        use_local_name_for_device=False,
+        parse_adv=False,
+    ),
 }
 
 INKBIRD_NAMES = {
@@ -431,7 +465,7 @@ NOTIFY_MODELS = {
 # Connectable probes whose readings are only available via a GATT read of a
 # data characteristic (no usable advertisement payload). They are not in the
 # length-based SENSOR_MODELS sets, but they must still be polled.
-GATT_POLL_MODELS = {Model.INT_11P_B}
+GATT_POLL_MODELS = {Model.INT_11P_B, Model.INT_11I_B}
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
 
@@ -842,6 +876,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if (lower_name in INKBIRD_NAMES) and (
             msg_length in SENSOR_MSG_LENGTHS
             or "0000fff0-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
+            or "0000ff00-0000-1000-8000-00805f9b34fb" in service_info.service_uuids
         ):
             self._device_type = INKBIRD_NAMES[lower_name]
         elif lower_name.startswith("ink@iht-2pb"):
@@ -982,8 +1017,34 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             assert self._device_type is not None
         dev_info = MODEL_INFO[self._device_type]
         service = client.services.get_service(dev_info.service_uuid)
+        if self._device_type is Model.INT_11I_B:
+            return await self._async_read_int_11i_b(client, service)
         char = service.get_characteristic(dev_info.characteristic_uuid)
         return await client.read_gatt_char(char)
+
+    async def _async_read_int_11i_b(
+        self, client: BleakClientWithServiceCache, service: Any
+    ) -> bytes:
+        """Read the INT-11I-B temperature and battery characteristics.
+
+        Unlike the INT-11P-B (single ``fff1`` read), the INT-11I-B exposes
+        temperature on ``ff01`` and the two battery levels on the standard
+        ``2a19`` characteristic. The two reads are concatenated into a single
+        buffer — temperature first (2 bytes), then battery (2 bytes) — so the
+        existing ``async_poll`` short-read guards still apply. The battery
+        characteristic is optional: if it is absent we return temperature only.
+        """
+        temp_char = service.get_characteristic(INT_11I_B_TEMP_CHARACTERISTIC_UUID)
+        temperature = await client.read_gatt_char(temp_char)
+        if len(temperature) < INT_11I_B_TEMP_READ_LEN:
+            # A short temperature read must stay short so the decode guard drops
+            # it; appending the battery bytes would backfill the temp slot.
+            return bytes(temperature)
+        battery = b""
+        batt_char = service.get_characteristic(INT_11I_B_BATTERY_CHARACTERISTIC_UUID)
+        if batt_char is not None:
+            battery = await client.read_gatt_char(batt_char)
+        return bytes(temperature[:2]) + bytes(battery[:2])
 
     def _poll_read_too_short(self, payload: bytes, minimum: int) -> bool:
         """Return ``True`` (and log) when a GATT poll read is undersized.
@@ -1016,6 +1077,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 self._update_nine_byte_model_from_raw(payload[0:4], None)
         elif self._device_type == Model.INT_11P_B:
             self._update_int_11p_b_from_raw(payload)
+        elif self._device_type == Model.INT_11I_B:
+            self._update_int_11i_b_from_raw(payload)
         return self._finish_update()
 
     def _update_bbq_model(self, data: bytes, _msg_length: int) -> None:
@@ -1280,6 +1343,39 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             key="case_battery",
             name="Case Battery",
         )
+
+    def _update_int_11i_b_from_raw(self, payload: bytes) -> None:
+        """Update the sensor values for an INT-11I-B GATT read.
+
+        ``payload`` is the temperature read (``ff01``) followed by the optional
+        battery read (``2a19``), concatenated by ``_async_read_int_11i_b``. The
+        decode follows the working community ESPHome config from issue #238:
+        the temperature is a little-endian uint16 of Fahrenheit x 100, and the
+        battery characteristic carries the base-station and probe percentages.
+
+        No temperature plausibility ceiling is applied — this is a food probe
+        whose legitimate range exceeds the room-sensor boundary-net limit (see
+        the IHT-2PB / BBQ probe handling). Each battery is reported only when
+        it is physically plausible, matching the INT-11P-B corrupt-read guard.
+        """
+        if self._poll_read_too_short(payload, INT_11I_B_TEMP_READ_LEN):
+            return
+        (raw_fahrenheit,) = struct.unpack("<H", payload[:INT_11I_B_TEMP_READ_LEN])
+        celsius = round(((raw_fahrenheit / 100.0) - 32.0) * 5.0 / 9.0, 1)
+        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, celsius)
+        if len(payload) < INT_11I_B_FULL_READ_LEN:
+            # Battery characteristic was absent or returned a short read; the
+            # temperature above is still valid, so emit it without batteries.
+            return
+        for index, key, name in (
+            (INT_11I_B_STATION_BATTERY_INDEX, "station_battery", "Station Battery"),
+            (INT_11I_B_PROBE_BATTERY_INDEX, "probe_battery", "Probe Battery"),
+        ):
+            battery = payload[index]
+            if self._is_battery_plausible(battery):
+                self.update_predefined_sensor(
+                    SensorLibrary.BATTERY__PERCENTAGE, battery, key=key, name=name
+                )
 
     _device_type_dispatch: ClassVar[
         dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
