@@ -4252,6 +4252,31 @@ async def test_int_11i_b_poll_impossible_battery_skipped() -> None:
 
 
 @pytest.mark.asyncio
+async def test_int_11i_b_poll_impossible_probe_battery_skipped() -> None:
+    """A garbage probe-battery byte is dropped; station + temperature survive.
+
+    Symmetric to ``test_int_11i_b_poll_impossible_battery_skipped`` so the
+    false branch of ``_is_battery_plausible(probe_battery)`` is exercised
+    (the Codecov partial flagged on the probe-battery-implausible path).
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
+    parser.update(_int_11i_b_service_info())
+    # station 80% valid; probe battery 0xFF -> 255% impossible.
+    read_gatt_char_mock = AsyncMock(side_effect=[b"\x60\x1d", b"\x50\xff"])
+    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="A4:C1:38:C9:88:65", name="INT-11I-B", details={})
+        )
+    values = {
+        key.key: value.native_value for key, value in update.entity_values.items()
+    }
+    assert values["temperature"] == 24.0
+    assert values["station_battery"] == 80
+    assert "probe_battery" not in values
+
+
+@pytest.mark.asyncio
 async def test_nine_byte_poll_short_read_ignored() -> None:
     """A truncated 9-byte poll read is skipped instead of raising.
 
