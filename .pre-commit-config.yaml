@@ -48,6 +48,8 @@ repos:
     rev: v2.4.2
     hooks:
       - id: codespell
+        # "hass" is the Home Assistant fixture/object name, not a typo of "hash".
+        args: ["--ignore-words-list=hass"]
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v2.1.0
     hooks:
