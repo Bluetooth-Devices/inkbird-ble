@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import pathlib
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -37,7 +37,11 @@ from inkbird_ble.parser import (
     NOTIFY_MODELS,
     SENSOR_MODELS,
     INKBIRDBluetoothDeviceData,
+    ITH11BHistoryRecord,
     Model,
+    build_ith_11_b_history_clock_command,
+    decode_ith_11_b_history_records,
+    parse_ith_11_b_history_interval,
 )
 
 from . import async_fire_time_changed
@@ -67,6 +71,24 @@ def test_model_is_public_export():
 def test_constructor_accepts_publicly_exported_model():
     parser = PublicData(PublicModel.IBS_TH)
     assert parser.device_type is PublicModel.IBS_TH
+
+
+def test_ith_11_b_history_helpers_are_public_exports() -> None:
+    assert inkbird_ble.ITH11BHistoryRecord is ITH11BHistoryRecord
+    assert (
+        inkbird_ble.build_ith_11_b_history_clock_command
+        is build_ith_11_b_history_clock_command
+    )
+    assert (
+        inkbird_ble.decode_ith_11_b_history_records is decode_ith_11_b_history_records
+    )
+    assert (
+        inkbird_ble.parse_ith_11_b_history_interval is parse_ith_11_b_history_interval
+    )
+    assert "ITH11BHistoryRecord" in inkbird_ble.__all__
+    assert "build_ith_11_b_history_clock_command" in inkbird_ble.__all__
+    assert "decode_ith_11_b_history_records" in inkbird_ble.__all__
+    assert "parse_ith_11_b_history_interval" in inkbird_ble.__all__
 
 
 def make_bluetooth_service_info(  # noqa: PLR0913
@@ -4198,6 +4220,109 @@ async def test_eighteen_byte_poll_short_read_ignored() -> None:
     assert "temperature" not in keys
     assert "humidity" not in keys
     assert "battery" not in keys
+
+
+def test_ith_11_b_history_clock_command_matches_official_app_trace() -> None:
+    """The ITH-11-B history sync writes local wall-clock time + CRC to fff7."""
+    clock = datetime(2026, 6, 25, 21, 56, 3, tzinfo=timezone(timedelta(hours=9)))
+
+    assert build_ith_11_b_history_clock_command(clock) == bytes.fromhex(
+        "033815041906ea07a327"
+    )
+
+
+def test_ith_11_b_history_clock_command_defaults_to_local_time() -> None:
+    """The ITH-11-B clock command defaults to the host wall clock."""
+    clock = datetime(2026, 6, 25, 21, 56, 3, tzinfo=timezone(timedelta(hours=9)))
+    with patch("inkbird_ble.parser.datetime") as datetime_mock:
+        datetime_mock.now.return_value.astimezone.return_value = clock
+
+        assert build_ith_11_b_history_clock_command() == bytes.fromhex(
+            "033815041906ea07a327"
+        )
+
+
+def test_ith_11_b_history_interval_from_fff5_config() -> None:
+    """The ITH-11-B fff5 config read exposes the logging interval."""
+    config = bytes.fromhex("00000000002c010000000058029cff200364000401c8")
+
+    assert parse_ith_11_b_history_interval(config) == 300
+
+
+def test_ith_11_b_history_interval_ignores_short_config() -> None:
+    """A short ITH-11-B fff5 read does not expose a logging interval."""
+    assert parse_ith_11_b_history_interval(b"\x00" * 6) is None
+
+
+def test_ith_11_b_history_interval_ignores_invalid_values() -> None:
+    """Zero is not a valid ITH-11-B logging interval."""
+    assert parse_ith_11_b_history_interval(b"\x00" * 9) is None
+
+
+def test_ith_11_b_history_records_decode_from_command_01_payload() -> None:
+    """ITH-11-B history command 0x01 returns 4-byte temp/humidity records."""
+    payload = bytes.fromhex(
+        "fd006f02fd006f02fd006d02fd006f02fd007502fd007902fd007d0200000000"
+    )
+
+    records = decode_ith_11_b_history_records((payload,))
+
+    assert records == (
+        ITH11BHistoryRecord(25.3, 62.3),
+        ITH11BHistoryRecord(25.3, 62.3),
+        ITH11BHistoryRecord(25.3, 62.1),
+        ITH11BHistoryRecord(25.3, 62.3),
+        ITH11BHistoryRecord(25.3, 62.9),
+        ITH11BHistoryRecord(25.3, 63.3),
+        ITH11BHistoryRecord(25.3, 63.7),
+    )
+
+
+def test_ith_11_b_history_records_join_notification_boundaries() -> None:
+    """BLE notification boundaries can split a 4-byte ITH-11-B history record."""
+    records = decode_ith_11_b_history_records(
+        (
+            bytes.fromhex("fd006f02fd"),
+            bytes.fromhex("006d0200000000"),
+        )
+    )
+
+    assert records == (
+        ITH11BHistoryRecord(25.3, 62.3),
+        ITH11BHistoryRecord(25.3, 62.1),
+    )
+
+
+def test_ith_11_b_history_records_drop_two_byte_packet_trailers() -> None:
+    """ITH-11-B fff6 history packets include a 2-byte packet trailer."""
+    records = decode_ith_11_b_history_records(
+        (
+            bytes.fromhex("e400b103" * 45 + "0100"),
+            bytes.fromhex("e500e303" * 45 + "0200"),
+        )
+    )
+
+    assert len(records) == 90
+    assert records[44] == ITH11BHistoryRecord(22.8, 94.5)
+    assert records[45] == ITH11BHistoryRecord(22.9, 99.5)
+
+
+def test_ith_11_b_history_records_ignore_incomplete_payload() -> None:
+    """Incomplete ITH-11-B history records are ignored."""
+    assert decode_ith_11_b_history_records((bytes.fromhex("fd006f"),)) == ()
+
+
+def test_ith_11_b_history_records_stop_at_implausible_payload() -> None:
+    """A corrupt ITH-11-B history record terminates decoding."""
+    records = decode_ith_11_b_history_records(
+        (
+            bytes.fromhex("fd006f02"),
+            bytes.fromhex("fd00ffff"),
+            bytes.fromhex("fd006d02"),
+        )
+    )
+
+    assert records == (ITH11BHistoryRecord(25.3, 62.3),)
 
 
 @pytest.mark.asyncio

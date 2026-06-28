@@ -13,6 +13,7 @@ import contextlib
 import logging
 import struct
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum, StrEnum, auto
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -87,12 +88,38 @@ class ModelInfo:
     supports_polling: bool = True
 
 
+@dataclass(frozen=True)
+class ITH11BHistoryRecord:
+    """A decoded ITH-11-B offline history record."""
+
+    temperature: float
+    humidity: float
+
+
 INKBIRD_SERVICE_UUID = UUID("0000fff0-0000-1000-8000-00805f9b34fb")
 EIGHTEEN_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID(
     "0000fff7-0000-1000-8000-00805f9b34fb"
 )
 NINE_BYTE_SENSOR_DATA_CHARACTERISTIC_UUID = UUID("0000fff2-0000-1000-8000-00805f9b34fb")
 IAM_T1_CHARACTERISTIC_UUID = UUID("0000fff4-0000-1000-8000-00805f9b34fb")
+
+# ITH-11-B offline history support. Observed ITH-11-B units do not expose the
+# fff8/fff9 history characteristics used by some related hygrometers. The
+# official app instead subscribes to fff6 notifications, writes the host clock
+# with a CRC16/MODBUS checksum to fff7, then writes 0x02, 0x01 and 0x04 to fff4.
+# The 0x01 response carries 4-byte records: signed little-endian temperature in
+# tenths of °C followed by unsigned little-endian humidity in tenths of %.
+ITH_11_B_CONFIG_CHARACTERISTIC_UUID = UUID("0000fff5-0000-1000-8000-00805f9b34fb")
+ITH_11_B_HISTORY_COMMAND_CHARACTERISTIC_UUID = UUID(
+    "0000fff4-0000-1000-8000-00805f9b34fb"
+)
+ITH_11_B_HISTORY_NOTIFY_CHARACTERISTIC_UUID = UUID(
+    "0000fff6-0000-1000-8000-00805f9b34fb"
+)
+ITH_11_B_CLOCK_CHARACTERISTIC_UUID = UUID("0000fff7-0000-1000-8000-00805f9b34fb")
+ITH_11_B_HISTORY_COMMAND_SEQUENCE = (b"\x02", b"\x01", b"\x04")
+ITH_11_B_HISTORY_RECORD_LENGTH = 4
+ITH_11_B_HISTORY_PACKET_TRAILER_LENGTH = 2
 
 INKBIRD_UNPACK = struct.Struct("<hH").unpack
 
@@ -533,6 +560,99 @@ MAX_PLAUSIBLE_BATTERY_PERCENTAGE = 100
 # bogus reading alongside potentially-corrupt temperature/humidity fields.
 MAX_PLAUSIBLE_CO2_PPM = 40000
 MAX_PLAUSIBLE_PRESSURE_HPA = 1200
+ITH_11_B_MAX_HISTORY_INTERVAL_SECONDS = 86400
+
+
+def crc16_modbus(data: bytes) -> int:
+    """Return the CRC16/MODBUS checksum for ``data``."""
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 0x0001:
+                crc = (crc >> 1) ^ 0xA001
+            else:
+                crc >>= 1
+    return crc
+
+
+def build_ith_11_b_history_clock_command(now: datetime | None = None) -> bytes:
+    """Build the ITH-11-B fff7 clock command used before history sync.
+
+    The payload layout observed from the official app is
+    ``second, minute, hour, ISO weekday, day, month, year_le, crc16_le``.
+    If ``now`` is omitted, the local wall clock is used. When ``now`` is
+    provided, its wall-clock components are encoded directly.
+    """
+    if now is None:
+        now = datetime.now().astimezone()
+
+    payload = bytes(
+        (
+            now.second,
+            now.minute,
+            now.hour,
+            now.isoweekday(),
+            now.day,
+            now.month,
+            now.year & 0xFF,
+            now.year >> 8,
+        )
+    )
+    return payload + crc16_modbus(payload).to_bytes(2, "little")
+
+
+def parse_ith_11_b_history_interval(config: bytes) -> int | None:
+    """Return the ITH-11-B history interval in seconds from a fff5 config read."""
+    for offset in (5, 7):
+        if offset + 1 >= len(config):
+            continue
+        value = int.from_bytes(config[offset : offset + 2], "little")
+        if 1 <= value <= ITH_11_B_MAX_HISTORY_INTERVAL_SECONDS:
+            return value
+    return None
+
+
+def decode_ith_11_b_history_records(
+    payloads: Iterable[bytes],
+) -> tuple[ITH11BHistoryRecord, ...]:
+    """Decode ITH-11-B fff6 notification payloads from history command 0x01.
+
+    Observed ITH-11-B notifications carry 4-byte records followed by a 2-byte
+    packet trailer. Callers should pass every 0x01 notification payload in
+    order; this helper drops per-packet trailers before walking the records.
+    Decoding stops at the all-zero terminator or at the first physically
+    implausible record.
+    """
+    data = b"".join(_ith_11_b_history_record_payload(payload) for payload in payloads)
+    records: list[ITH11BHistoryRecord] = []
+    for offset in range(0, len(data) - 3, 4):
+        temperature_raw = int.from_bytes(
+            data[offset : offset + 2], "little", signed=True
+        )
+        humidity_raw = int.from_bytes(data[offset + 2 : offset + 4], "little")
+        if temperature_raw == 0 and humidity_raw == 0:
+            break
+
+        temperature = temperature_raw / 10
+        humidity = humidity_raw / 10
+        if (
+            abs(temperature) > MAX_PLAUSIBLE_AMBIENT_TEMPERATURE_CELSIUS
+            or humidity > MAX_PLAUSIBLE_HUMIDITY
+        ):
+            break
+        records.append(ITH11BHistoryRecord(temperature, humidity))
+    return tuple(records)
+
+
+def _ith_11_b_history_record_payload(payload: bytes) -> bytes:
+    if (
+        len(payload) > ITH_11_B_HISTORY_RECORD_LENGTH
+        and len(payload) % ITH_11_B_HISTORY_RECORD_LENGTH
+        == ITH_11_B_HISTORY_PACKET_TRAILER_LENGTH
+    ):
+        return payload[:-ITH_11_B_HISTORY_PACKET_TRAILER_LENGTH]
+    return payload
 
 
 def convert_temperature(temp: float) -> float:
