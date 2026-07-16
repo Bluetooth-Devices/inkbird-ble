@@ -4680,6 +4680,28 @@ async def test_notify_idt_34c_b_short_packet_dropped() -> None:
     assert updates == []
 
 
+def test_notify_ibt_4wb_skips_invalid_packets() -> None:
+    """A notification that is not exactly 10 bytes is dropped, no update fires.
+
+    The IBT-4WB notify decoder length-gates on ``IBT_4WB_DATA_LENGTH`` before
+    unpacking the four signed int16 probe temperatures, so a short, empty or
+    over-length frame (truncated BLE packet / protocol mismatch) must produce
+    no sensor update rather than reading past the buffer.
+    """
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(
+        Model.IBT_4WB, {}, _update_callback, MagicMock()
+    )
+    parser._notify_callback(MagicMock(), bytearray(b"\x00\x00"))  # noqa: SLF001
+    parser._notify_callback(MagicMock(), bytearray(b"\x00" * 20))  # noqa: SLF001
+    parser._notify_callback(MagicMock(), bytearray())  # noqa: SLF001
+    assert updates == []
+
+
 # Notify boundary net — extends the ADV boundary-net pattern
 # (#213/#214/#216) to ``NOTIFY_MODELS``. Each notify model must declare at
 # least one named corrupt-input test, so a future notify protocol added to
@@ -4698,6 +4720,7 @@ _NOTIFY_CORRUPT_INPUT_TESTS: dict[Model, tuple[str, ...]] = {
     ),
     Model.IHT_2PB: ("test_notify_iht_2pb_skips_invalid_packets",),
     Model.IDT_34C_B: ("test_notify_idt_34c_b_short_packet_dropped",),
+    Model.IBT_4WB: ("test_notify_ibt_4wb_skips_invalid_packets",),
 }
 
 

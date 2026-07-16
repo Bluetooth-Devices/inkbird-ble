@@ -25,6 +25,7 @@ must supply it (notify-only devices).
 | `iBBQ-6`                | BBQ probe (6 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 6                                                     |
 | `Generic 18 byte model` | Unknown hygrometer      | advertisement      | 18-byte payload + service UUID     | temperature, humidity, battery                                      |
 | `IDT-34c-B`             | 6-probe BBQ thermometer | GATT notify        | local name `idt-34c-b`             | temperature × 6 probes, battery                                     |
+| `IBT-4WB`               | 4-probe BBQ thermometer | GATT notify        | local name `Inkbird@IBT-24SPH`     | temperature × 4 probes, battery                                     |
 
 ## Transport guide
 
@@ -39,12 +40,18 @@ must supply it (notify-only devices).
   `async_poll(ble_device)` when `poll_needed()` returns true. `INT-11P-B`
   carries _no_ readings in its advertisement, so it must be polled.
 - **GATT notify** — the device pushes readings over a notify characteristic;
-  call `async_start(service_info, ble_device)` to subscribe. `IAM-T1` and
-  `IHT-2PB` use this transport. `IHT-2PB` additionally requires two
-  activation writes (handled transparently) before it starts streaming. The
-  `IDT-34c-B` advertises only a name (no manufacturer data), so it is matched
-  by local name; its `ff01` characteristic streams all six probe temperatures
-  in a single notification.
+  call `async_start(service_info, ble_device)` to subscribe. `IAM-T1`,
+  `IHT-2PB`, `IDT-34c-B` and `IBT-4WB` use this transport. `IHT-2PB`
+  additionally requires two activation writes (handled transparently) before
+  it starts streaming. The `IDT-34c-B` and `IBT-4WB` advertise only a name (no
+  manufacturer data), so they are matched by local name; their `ff01`
+  characteristic streams every probe temperature in a single notification.
+  `IBT-4WB` keeps the connection alive with a periodic state-sync write and
+  exposes optional control commands (`async_ibt_4wb_set_temperature_unit`,
+  `async_ibt_4wb_set_sound_enabled`, `async_ibt_4wb_set_brightness`,
+  `async_ibt_4wb_set_calibration`); its probe temperatures are transmitted in
+  Fahrenheit and converted to Celsius, and an unplugged probe is published as
+  `None`.
 
 ## Not supported
 
