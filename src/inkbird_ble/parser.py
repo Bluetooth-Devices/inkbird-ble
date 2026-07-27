@@ -671,6 +671,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self._running = True
         if self._device_type not in NOTIFY_MODELS:
             return
+        if self._notify_task is not None and not self._notify_task.done():
+            # ``usage.md`` shows async_start being driven from the
+            # per-advertisement dispatch, so it is called repeatedly for a
+            # device that is already notifying. Creating another task would
+            # overwrite the reference to this one, leaving it reconnecting
+            # forever in _async_start_notify with no way for async_stop to
+            # cancel it.
+            return
         self._notify_task = asyncio.create_task(self._async_start_notify(ble_device))
 
     async def async_stop(self) -> None:
