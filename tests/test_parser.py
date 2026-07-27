@@ -2727,7 +2727,11 @@ async def test_notify_only_uses_real_bleak_client_api() -> None:
         assert start_notify_calls == 1
         # The session stays parked until the connection drops, and the only
         # supported way to be told about that is the constructor argument.
-        establish_mock.call_args.kwargs["disconnected_callback"](mock_client)
+        disconnected_callback = establish_mock.call_args.kwargs["disconnected_callback"]
+        disconnected_callback(mock_client)
+        # A second callback for the same connection must be a no-op rather than
+        # resolving an already-resolved future.
+        disconnected_callback(mock_client)
         await asyncio.sleep(0)
         assert mock_client.disconnect.await_count == 1
         await parser.async_stop()
