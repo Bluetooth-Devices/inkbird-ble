@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakCharacteristicNotFoundError, BleakError
+from bleak_retry_connector import BleakClientWithServiceCache
 from bluetooth_data_tools import monotonic_time_coarse
 from bluetooth_sensor_state_data import DeviceClass, SensorUpdate
 from habluetooth import BluetoothServiceInfoBleak
@@ -2652,13 +2653,13 @@ async def test_reconnect_iam_t1_f() -> None:
         callback(uuid, b"U\xaa\x05\x0c\x00\x00\x00\x00\x00\x00\x01\x11")
         callback(uuid, b"U\xaa\x01\x10\x10\x03\x0b\x01\xd6\x02\xe3\x03\xf1\x01\x00\xcf")
 
-    set_disconnected_callback_mock = MagicMock()
     mock_client = MagicMock(
         start_notify=start_notify_mock,
         disconnect=disconnect_mock,
-        set_disconnected_callback=set_disconnected_callback_mock,
     )
-    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+    with patch(
+        "inkbird_ble.parser.establish_connection", return_value=mock_client
+    ) as establish_mock:
         await parser.async_start(
             service_info,
             BLEDevice(
@@ -2668,8 +2669,9 @@ async def test_reconnect_iam_t1_f() -> None:
             ),
         )
         await asyncio.sleep(0)
-        assert set_disconnected_callback_mock.called
-        set_disconnected_callback_mock.call_args[0][0](mock_client)
+        disconnected_callback = establish_mock.call_args.kwargs["disconnected_callback"]
+        assert disconnected_callback is not None
+        disconnected_callback(mock_client)
         await asyncio.sleep(0)
         assert start_notify_calls == 1
         async_fire_time_changed(datetime.now(UTC) + timedelta(seconds=5))
@@ -2678,6 +2680,57 @@ async def test_reconnect_iam_t1_f() -> None:
         await parser.async_stop()
 
     assert last_update is not None
+
+
+@pytest.mark.asyncio
+async def test_notify_only_uses_real_bleak_client_api() -> None:
+    """The notify session must only touch attributes bleak actually exposes.
+
+    Every other notify test builds an attribute-permissive ``MagicMock``, which
+    happily accepts calls to methods the installed bleak no longer has (the
+    disconnect callback moved from a ``set_disconnected_callback`` setter to a
+    constructor argument). Speccing the mock against the real client class makes
+    such a call raise ``AttributeError`` inside the notify task, which
+    ``_async_start_notify`` does not catch, so the subscription never happens.
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.IAM_T1, {}, None, lambda _data: None)
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+
+    start_notify_calls = 0
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        nonlocal start_notify_calls
+        start_notify_calls += 1
+
+    mock_client = MagicMock(spec=BleakClientWithServiceCache)
+    mock_client.start_notify = start_notify_mock
+
+    with patch(
+        "inkbird_ble.parser.establish_connection", return_value=mock_client
+    ) as establish_mock:
+        await parser.async_start(
+            service_info,
+            BLEDevice(address="62:00:A1:3C:AE:7B", name="Ink@IAM-T1", details={}),
+        )
+        await asyncio.sleep(0)
+        assert start_notify_calls == 1
+        # The session stays parked until the connection drops, and the only
+        # supported way to be told about that is the constructor argument.
+        establish_mock.call_args.kwargs["disconnected_callback"](mock_client)
+        await asyncio.sleep(0)
+        assert mock_client.disconnect.await_count == 1
+        await parser.async_stop()
 
 
 @pytest.mark.asyncio
@@ -2725,7 +2778,6 @@ async def test_notify_iam_t1_connection_failure_retries() -> None:
     mock_client = MagicMock(
         start_notify=start_notify_mock,
         disconnect=disconnect_mock,
-        set_disconnected_callback=MagicMock(),
     )
 
     connect_calls = 0
