@@ -589,12 +589,22 @@ MAX_PLAUSIBLE_HUMIDITY = 100.0
 # temperature boundary-net test enforces against the advertisement parsers
 # (see ``test_adv_temperature_boundary_invariant``).
 #
-# NOT valid for BBQ probe decoders (iBBQ-1/2/4/6), which spec up to ~300 °C
-# and would need their own higher ceiling (e.g.
-# ``MAX_PLAUSIBLE_PROBE_TEMPERATURE_CELSIUS``) if a real corruption case ever
-# appears there. Today the ADV BBQ decoders are already signed, so applying
-# this guard to them would be dead defensive code.
+# NOT valid for probe decoders, which spec up to ~300 °C — those use
+# ``MAX_PLAUSIBLE_PROBE_TEMPERATURE_CELSIUS`` below. Today the ADV BBQ
+# decoders are already signed *and* have no out-of-band sentinel, so applying
+# either guard to them would be dead defensive code.
 MAX_PLAUSIBLE_AMBIENT_TEMPERATURE_CELSIUS = 200.0
+
+# Companion ceiling for meat/oven probe decoders, whose legitimate range runs
+# far past the ambient one (Inkbird BBQ probes spec ~300 °C, and the IHT-2PB
+# oven probe reads higher still). Needed by the IDT-34c-B notify path: it
+# decodes six signed int16 Fahrenheit-tenths fields, so a corrupt field spans
+# -1820 °C to +1802 °C. Signedness alone does not close that hole the way it
+# does for the ADV BBQ decoders, because the protocol reserves ``0x7FFE`` as
+# an unplugged-probe sentinel — ``0x7FFF``, one bit away, is *not* the
+# sentinel and decodes to 1802.6 °C. 500 °C sits well clear of any real probe
+# reading while blocking the wraparound shape of the #141 / #155 family.
+MAX_PLAUSIBLE_PROBE_TEMPERATURE_CELSIUS = 500.0
 
 # Battery percentages above 100 are physically impossible. The advertisement
 # (9/18-byte) and INT-11P-B poll decoders read battery from a single raw byte,
@@ -912,7 +922,13 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         trailing status byte (13 bytes total). 0x7FFE marks an unplugged probe,
         which is reported as ``None`` so a removed probe clears its sensor
         rather than reporting a bogus 3276 C. A notification of any other length
-        is corrupt and dropped whole (the #141 corrupt-byte guard family).
+        is corrupt and dropped whole (the #141 corrupt-byte guard family), as is
+        one carrying an implausible probe temperature — the sentinel only
+        excuses 0x7FFE, while 0x7FFF (one bit away) still decodes to 1802.6 C.
+
+        Every probe is decoded and checked before any sensor is updated: a
+        single-pass loop would leave the probes ahead of a corrupt field
+        already published when the packet is rejected.
         """
         if len(data) != IDT_34C_B_DATA_LENGTH:
             _LOGGER.debug(
@@ -921,21 +937,25 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 IDT_34C_B_DATA_LENGTH,
             )
             return
+        temperatures: list[float | None] = []
         for idx in range(IDT_34C_B_PROBE_COUNT):
             # A single signed read suffices: 0x7FFE (32766) is positive as
             # both signed and unsigned int16, so the sentinel check is identical.
             raw = struct.unpack_from("<h", data, idx * 2)[0]
-            num = idx + 1
-            key = f"temperature_probe_{num}"
-            name = f"Temperature Probe {num}"
             if raw == IDT_34C_B_NO_PROBE:
-                self.update_predefined_sensor(
-                    SensorLibrary.TEMPERATURE__CELSIUS, None, key=key, name=name
-                )
+                temperatures.append(None)
                 continue
             temp_c = round((raw / 10.0 - 32) * 5 / 9, 1)
+            if not self._is_probe_temperature_plausible(temp_c):
+                return
+            temperatures.append(temp_c)
+        for idx, temp in enumerate(temperatures):
+            num = idx + 1
             self.update_predefined_sensor(
-                SensorLibrary.TEMPERATURE__CELSIUS, temp_c, key=key, name=name
+                SensorLibrary.TEMPERATURE__CELSIUS,
+                temp,
+                key=f"temperature_probe_{num}",
+                name=f"Temperature Probe {num}",
             )
         if self._update_callback is None:
             _LOGGER.debug("IDT-34c-B: update_callback not set, dropping update")
@@ -1297,13 +1317,32 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         packet rather than publish a temperature outside
         ``MAX_PLAUSIBLE_AMBIENT_TEMPERATURE_CELSIUS``.
 
-        **Not valid for BBQ probe decoders** (iBBQ-1/2/4/6), which spec up
-        to ~300 °C — those would need their own higher ceiling if a real
-        corruption case ever appears there.
+        **Not valid for probe decoders** (iBBQ-1/2/4/6, IDT-34c-B), which
+        spec up to ~300 °C — those use
+        ``_is_probe_temperature_plausible`` instead.
         """
         if abs(temperature_c) > MAX_PLAUSIBLE_AMBIENT_TEMPERATURE_CELSIUS:
             _LOGGER.debug(
                 "Ignoring corrupt reading from %s: temperature %.1f °C "
+                "exceeds plausible range",
+                self.name,
+                temperature_c,
+            )
+            return False
+        return True
+
+    def _is_probe_temperature_plausible(self, temperature_c: float) -> bool:
+        """Return ``False`` for a probe temperature outside plausible Celsius range.
+
+        The probe-decoder counterpart of ``_is_temperature_plausible``: same
+        corrupt-field intent, a ceiling raised to
+        ``MAX_PLAUSIBLE_PROBE_TEMPERATURE_CELSIUS`` so a legitimate meat/oven
+        reading is never clipped. Callers drop the whole packet rather than
+        publish the reading.
+        """
+        if abs(temperature_c) > MAX_PLAUSIBLE_PROBE_TEMPERATURE_CELSIUS:
+            _LOGGER.debug(
+                "Ignoring corrupt reading from %s: probe temperature %.1f °C "
                 "exceeds plausible range",
                 self.name,
                 temperature_c,

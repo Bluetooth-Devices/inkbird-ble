@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import pathlib
+import struct
 import sys
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -32,6 +33,7 @@ from inkbird_ble.parser import (
     IHT_2PB_WRITE_UUID,
     MAX_PLAUSIBLE_BATTERY_PERCENTAGE,
     MAX_PLAUSIBLE_HUMIDITY,
+    MAX_PLAUSIBLE_PROBE_TEMPERATURE_CELSIUS,
     MIN_POLL_INTERVAL,
     MODEL_INFO,
     NOTIFY_MODELS,
@@ -4680,6 +4682,89 @@ async def test_notify_idt_34c_b_short_packet_dropped() -> None:
     assert updates == []
 
 
+async def _idt_34c_b_notify(frame: bytes) -> list[SensorUpdate]:
+    """Drive one IDT-34c-B ff01 notification through the parser.
+
+    Returns the ``SensorUpdate`` list the parser emitted, so a caller can
+    assert on both the values published and the fact that nothing was.
+    """
+    updates: list[SensorUpdate] = []
+
+    def _update_callback(update: SensorUpdate) -> None:
+        updates.append(update)
+
+    parser = INKBIRDBluetoothDeviceData(Model.IDT_34C_B, {}, _update_callback, None)
+    service_info = make_bluetooth_service_info(
+        name="IDT-34c-B",
+        manufacturer_data={},
+        service_uuids=["0000ff00-0000-1000-8000-00805f9b34fb"],
+        address="A4:C1:38:81:F1:4C",
+        rssi=-50,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+
+    async def start_notify_mock(
+        uuid: UUID, callback: Callable[[UUID, bytes], None]
+    ) -> None:
+        callback(uuid, frame)
+
+    mock_client = MagicMock(
+        start_notify=start_notify_mock,
+        read_gatt_char=AsyncMock(return_value=b"\x55"),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_start(
+            service_info,
+            BLEDevice(address="A4:C1:38:81:F1:4C", name="IDT-34c-B", details={}),
+        )
+        await asyncio.sleep(0)
+        await parser.async_stop()
+    return updates
+
+
+def _idt_34c_b_frame(*raws: int) -> bytes:
+    """Build a 13-byte ff01 frame from six raw int16 Fahrenheit-tenths values."""
+    return struct.pack("<6hB", *raws, 0x00)
+
+
+@pytest.mark.asyncio
+async def test_notify_idt_34c_b_implausible_probe_dropped() -> None:
+    """A probe field decoding past the probe ceiling drops the whole packet.
+
+    ``0x7FFE`` is the unplugged-probe sentinel, but ``0x7FFF`` — one bit away —
+    is not, and decodes to 1802.6 C. Without the probe plausibility guard that
+    value is published as a real temperature. The whole notification is
+    dropped (the #141 corrupt-byte family), and because probes are validated
+    before any sensor is updated, the three good probes ahead of the corrupt
+    one must not leak out either.
+    """
+    frame = _idt_34c_b_frame(0x036A, 0x036A, 0x036A, 0x7FFF, 0x7FFE, 0x7FFE)
+
+    assert await _idt_34c_b_notify(frame) == []
+
+
+@pytest.mark.asyncio
+async def test_notify_idt_34c_b_high_probe_reading_not_clipped() -> None:
+    """A legitimate high BBQ/oven reading survives the probe guard.
+
+    The ambient 200 C ceiling would clip a real 300 C probe reading, which is
+    why the probe decoders get their own higher ceiling. Pins that the guard
+    catches wraparound without clipping the range the hardware actually specs.
+    """
+    # 5720 tenths-F = 572.0 F = 300.0 C, a normal high oven/probe reading.
+    frame = _idt_34c_b_frame(5720, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE)
+
+    updates = await _idt_34c_b_notify(frame)
+
+    assert len(updates) == 1
+    probe_1 = updates[0].entity_values[DeviceKey("temperature_probe_1", None)]
+    assert probe_1.native_value == 300.0
+    assert probe_1.native_value < MAX_PLAUSIBLE_PROBE_TEMPERATURE_CELSIUS
+
+
 # Notify boundary net — extends the ADV boundary-net pattern
 # (#213/#214/#216) to ``NOTIFY_MODELS``. Each notify model must declare at
 # least one named corrupt-input test, so a future notify protocol added to
@@ -4697,7 +4782,10 @@ _NOTIFY_CORRUPT_INPUT_TESTS: dict[Model, tuple[str, ...]] = {
         "test_notify_iam_t1_corrupt_pressure_dropped",
     ),
     Model.IHT_2PB: ("test_notify_iht_2pb_skips_invalid_packets",),
-    Model.IDT_34C_B: ("test_notify_idt_34c_b_short_packet_dropped",),
+    Model.IDT_34C_B: (
+        "test_notify_idt_34c_b_short_packet_dropped",
+        "test_notify_idt_34c_b_implausible_probe_dropped",
+    ),
 }
 
 
