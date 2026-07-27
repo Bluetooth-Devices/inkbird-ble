@@ -4836,7 +4836,7 @@ def test_supported_devices_doc_mentions_every_model() -> None:
 def _adv_with_payload(payload: bytes) -> BluetoothServiceInfoBleak:
     return make_bluetooth_service_info(
         name="sps",
-        manufacturer_data={2409: payload},
+        manufacturer_data={2044: payload},
         service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
         address="aa:bb:cc:dd:ee:ff",
         rssi=-60,
@@ -4860,13 +4860,13 @@ def test_truncated_advertisement_is_dropped(model: Model, payload: bytes) -> Non
     """
     parser = INKBIRDBluetoothDeviceData(model)
     update = parser.update(_adv_with_payload(payload))
-    assert update.entity_values == {}
+    # ``signal_strength`` comes from the RSSI on the advertisement itself, not
+    # from the payload, so it survives; nothing decoded may.
+    assert [key.key for key in update.entity_values] == ["signal_strength"]
 
 
 def test_full_length_advertisement_still_parses() -> None:
     """The guard must not reject a well-formed advertisement."""
     parser = INKBIRDBluetoothDeviceData(Model.IBS_TH)
-    update = parser.update(
-        _adv_with_payload(b"\x00\x00\xe2\x01\x00\x00\x00\x00\x00\x00\x00\x00\x64")
-    )
-    assert update.entity_values != {}
+    update = parser.update(_adv_with_payload(b"\xc7\x12\x00\xc8=V\x06"))
+    assert {key.key for key in update.entity_values} >= {"temperature", "humidity"}

@@ -1084,6 +1084,20 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             + changed_manufacturer_data[last_id]
         )
 
+        if len(data) != MODEL_INFO[self._device_type].message_length:
+            # Detection enforces the exact message length, but that chain only
+            # runs while the model is unknown. Once it is pinned (detected once,
+            # or supplied by the caller) every advertisement lands straight on a
+            # decoder that slices fixed offsets or unpacks a fixed-size struct,
+            # so a truncated payload raises out of the callback. Drop it here.
+            _LOGGER.debug(
+                "Ignoring %d byte advertisement for %s (expected %d): %s",
+                len(data),
+                self.name,
+                MODEL_INFO[self._device_type].message_length,
+                data,
+            )
+            return
         _LOGGER.debug("Parsing INKBIRD BLE advertisement data: %s", data)
         self._device_type_dispatch[self._device_type](self, data, msg_length)
         self._last_full_update = service_info.time
