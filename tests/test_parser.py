@@ -4795,6 +4795,72 @@ def test_notify_init_writes_only_on_notify_models() -> None:
             )
 
 
+def test_pollable_models_declare_their_gatt_uuids() -> None:
+    """Every model reachable by ``_async_poll_action`` must name its GATT read.
+
+    Membership in ``SENSOR_MODELS`` is derived from the advertisement length,
+    not from whether the model can actually be read over GATT — so an
+    advertisement-only model lands there by default and becomes pollable
+    unless it opts out with ``supports_polling=False``. ``_async_poll_action``
+    then passes ``service_uuid`` / ``characteristic_uuid`` straight to bleak,
+    where ``None`` raises ``ValueError`` while resolving the UUID. That is not
+    a ``BleakError``, so it bypasses the clear-cache retry in
+    ``async_connect_action`` and escapes ``async_poll`` entirely.
+
+    Pinning the invariant here means a new advertisement-only model has to
+    make the choice explicitly rather than inherit a broken poll path.
+    """
+    for model in {m for m in SENSOR_MODELS if MODEL_INFO[m].supports_polling} | set(
+        GATT_POLL_MODELS
+    ):
+        info = MODEL_INFO[model]
+        assert info.service_uuid is not None, (
+            f"{model} is pollable but has no service_uuid; "
+            "set supports_polling=False if it is advertisement-only"
+        )
+        assert info.characteristic_uuid is not None, (
+            f"{model} is pollable but has no characteristic_uuid; "
+            "set supports_polling=False if it is advertisement-only"
+        )
+
+
+def test_iam_t2_is_never_polled() -> None:
+    """The IAM-T2 broadcasts everything and exposes no readable service.
+
+    A stale advertisement previously made ``poll_needed`` return ``True`` for
+    this model, sending a connectable poll down a path with no GATT UUIDs.
+    """
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={12884: bytes.fromhex("006200a13e2c6a4202d001be025f72")},
+        service_uuids=[],
+        address="62:00:A1:3E:2C:6A",
+        rssi=-78,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    parser = INKBIRDBluetoothDeviceData()
+    parser.update(service_info)
+    assert parser.device_type is Model.IAM_T2
+    assert parser.poll_needed(service_info, None) is False
+
+    # An advertisement that yields no reading is what previously flipped
+    # ``poll_needed`` to True for the other 17-byte sensors; the IAM-T2 must
+    # stay False because it has no characteristic to poll.
+    pinned = INKBIRDBluetoothDeviceData(Model.IAM_T2)
+    empty = make_bluetooth_service_info(
+        name="Ink@IAM-T2",
+        manufacturer_data={},
+        service_uuids=[],
+        address="62:00:A1:3E:2C:6A",
+        rssi=-78,
+        service_data={},
+        source="Core Bluetooth",
+    )
+    pinned.update(empty)
+    assert pinned.poll_needed(empty, None) is False
+
+
 # ---------------------------------------------------------------------------
 # Documentation drift guard.
 #
