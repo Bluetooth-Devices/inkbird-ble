@@ -527,13 +527,21 @@ async def async_connect_action(
     action: Callable[
         [BleakClientWithServiceCache], Coroutine[None, None, bytes | None]
     ],
+    disconnected_callback: Callable[[BleakClientWithServiceCache], None] | None = None,
 ) -> bytes | None:
-    """Connect to the device and read the data characteristic."""
+    """Connect to the device and read the data characteristic.
+
+    ``disconnected_callback`` must be handed to ``establish_connection`` so it
+    reaches the ``BleakClient`` constructor: bleak removed the after-the-fact
+    ``set_disconnected_callback`` setter, so the constructor argument is the
+    only supported way to learn about a disconnect.
+    """
     for attempt in range(2):
         client = await establish_connection(
             BleakClientWithServiceCache,
             ble_device,
             ble_device.name or ble_device.address,
+            disconnected_callback=disconnected_callback,
         )
         try:
             return await action(client)
@@ -657,6 +665,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # Last time we got a full update from ADV data
         self._last_full_update = 0.0
         self._notify_task: asyncio.Task[None] | None = None
+        self._disconnect_future: asyncio.Future[None] | None = None
         self._running = True
         self._device_data = device_data.copy() if device_data else {}
         self._update_callback = update_callback
@@ -693,7 +702,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         while self._running:
             _LOGGER.debug("Starting notification for %s", self.name)
             try:
-                await async_connect_action(ble_device, self._async_notify_action)
+                await async_connect_action(
+                    ble_device, self._async_notify_action, self._handle_disconnect
+                )
             except (BleakError, TimeoutError) as err:
                 _LOGGER.debug("Error starting notification: %s", str(err) or type(err))
             _LOGGER.debug("Notification loop for %s finished", self.name)
@@ -702,19 +713,21 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # available
             await asyncio.sleep(5)
 
+    def _handle_disconnect(self, _client: BleakClientWithServiceCache) -> None:
+        """Wake the notify session waiting on this connection."""
+        if (future := self._disconnect_future) is not None and not future.done():
+            future.set_result(None)
+
     async def _async_notify_action(self, client: BleakClientWithServiceCache) -> None:
         if TYPE_CHECKING:
             assert self._device_type is not None
         dev_info = MODEL_INFO[self._device_type]
         notify_uuid = dev_info.notify_uuid
-        loop = asyncio.get_running_loop()
-        disconnect_future = loop.create_future()
-
-        def _resolve_disconnect_callback(_: BleakClientWithServiceCache) -> None:
-            if not disconnect_future.done():
-                disconnect_future.set_result(None)
-
-        client.set_disconnected_callback(_resolve_disconnect_callback)
+        # Claim the disconnect callback for this attempt before the first await
+        # so a disconnect can never resolve a future belonging to a previous
+        # connection (``async_connect_action`` may reconnect and retry).
+        disconnect_future = asyncio.get_running_loop().create_future()
+        self._disconnect_future = disconnect_future
         if self._device_type is Model.IDT_34C_B:
             # Read battery before subscribing so the value is stored and
             # included in the very first temperature SensorUpdate.
