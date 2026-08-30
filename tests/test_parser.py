@@ -683,6 +683,124 @@ def test_tps_multi_entry_dict_without_raw_bails() -> None:
     )
 
 
+_TEMPERATURE_KEY = DeviceKey(key="temperature", device_id=None)
+_BATTERY_KEY = DeviceKey(key="battery", device_id=None)
+_HUMIDITY_KEY = DeviceKey(key="humidity", device_id=None)
+
+# Real IBS-P01B (firmware 2.3.0) advertisements; humidity field is always ff ff.
+_IBS_P01B_FFFF_HUMIDITY_ADVS: list[tuple[int, str, float, int]] = [
+    # (manufacturer id == temperature field, payload, temp C, battery %)
+    (440, "ffff00f4273208", 4.40, 50),
+    (450, "ffff002ded3208", 4.50, 50),
+    (2405, "ffff001a543908", 24.05, 57),
+    (4375, "ffff0024ff3908", 43.75, 57),
+]
+
+
+def _ibs_p01b_service_info(mfr_id: int, payload_hex: str) -> BluetoothServiceInfoBleak:
+    payload = bytes.fromhex(payload_hex)
+    return make_bluetooth_service_info(
+        name="tps",
+        manufacturer_data={mfr_id: payload},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:26:02:27:03:9f",
+        rssi=-34,
+        service_data={},
+        source="esphome-proxy",
+        raw=bytes.fromhex("0201060302f0ff")
+        + b"\x0a\xff"
+        + mfr_id.to_bytes(2, "little")
+        + payload,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mfr_id", "payload_hex", "expected_temp", "expected_battery"),
+    _IBS_P01B_FFFF_HUMIDITY_ADVS,
+)
+def test_ibs_p01b_ffff_humidity_means_no_sensor(
+    mfr_id: int, payload_hex: str, expected_temp: float, expected_battery: int
+) -> None:
+    """An IBS-P01B sending ``ff ff`` humidity has no sensor; it is not a bad packet."""
+    parser = INKBIRDBluetoothDeviceData()
+    result = parser.update(_ibs_p01b_service_info(mfr_id, payload_hex))
+    assert parser.device_type is Model.IBS_TH2
+    assert result.entity_values[_TEMPERATURE_KEY].native_value == expected_temp
+    assert result.entity_values[_BATTERY_KEY].native_value == expected_battery
+    assert _HUMIDITY_KEY not in result.entity_values
+    assert _HUMIDITY_KEY not in result.entity_descriptions
+
+
+def test_ibs_p01b_ffff_humidity_keeps_updating_across_advertisements() -> None:
+    """Successive P01B advertisements each produce a fresh temperature."""
+    parser = INKBIRDBluetoothDeviceData()
+    seen: list[float] = []
+    for mfr_id, payload_hex, expected_temp, _ in _IBS_P01B_FFFF_HUMIDITY_ADVS:
+        result = parser.update(_ibs_p01b_service_info(mfr_id, payload_hex))
+        assert result.entity_values[_TEMPERATURE_KEY].native_value == expected_temp
+        seen.append(result.entity_values[_TEMPERATURE_KEY].native_value)
+    assert seen == [4.40, 4.50, 24.05, 43.75]
+
+
+@pytest.mark.asyncio
+async def test_ibs_p01b_poll_ffff_humidity_is_not_fitted() -> None:
+    """Polling over GATT uses the same decoder, so ``ff ff`` is handled there too."""
+    parser = INKBIRDBluetoothDeviceData(Model.IBS_TH2)
+    service_info = make_bluetooth_service_info(
+        name="tps",
+        manufacturer_data={},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="49:26:02:27:03:9f",
+        rssi=-34,
+        service_data={},
+        source="local",
+    )
+    parser.update(service_info)
+    read_gatt_char_mock = AsyncMock(return_value=b"\xb8\x01\xff\xff\x00\xf4\x27")
+    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="49:26:02:27:03:9f", name="tps", details={})
+        )
+    assert update.entity_values[_TEMPERATURE_KEY].native_value == 4.40
+    assert _HUMIDITY_KEY not in update.entity_values
+    assert _BATTERY_KEY not in update.entity_values
+
+
+def test_ibs_th_ffff_humidity_is_still_corrupt_and_dropped() -> None:
+    """An IBS-TH always has a humidity sensor, so ``ff ff`` is still a bad packet."""
+    parser = INKBIRDBluetoothDeviceData()
+    payload = bytes.fromhex("ffff00f4273208")
+    service_info = make_bluetooth_service_info(
+        name="sps",
+        manufacturer_data={440: payload},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-34,
+        service_data={},
+        source="local",
+        raw=bytes.fromhex("0201060302f0ff")
+        + b"\x0a\xff"
+        + (440).to_bytes(2, "little")
+        + payload,
+    )
+    result = parser.update(service_info)
+    assert parser.device_type is Model.IBS_TH
+    assert set(result.entity_values) == {
+        DeviceKey(key="signal_strength", device_id=None)
+    }
+
+
+def test_ibs_th2_other_impossible_humidity_is_still_dropped() -> None:
+    """Any other impossible humidity on an IBS-TH2 is still a bad packet (#141)."""
+    parser = INKBIRDBluetoothDeviceData()
+    result = parser.update(_ibs_p01b_service_info(440, "008000f4273208"))
+    assert parser.device_type is Model.IBS_TH2
+    assert set(result.entity_values) == {
+        DeviceKey(key="signal_strength", device_id=None)
+    }
+
+
 def test_ibbq_4():
     parser = INKBIRDBluetoothDeviceData()
     service_info = make_bluetooth_service_info(
@@ -4408,7 +4526,9 @@ _ADV_HUMIDITY_BOUNDARY_CASES: dict[Model, tuple[str, int, bytes, slice]] = {
     ),
 }
 
-_HUMIDITY_KEY = DeviceKey(key="humidity", device_id=None)
+# Models where 0xFFFF humidity means "no sensor" rather than a bad packet,
+# so the temperature reading must still come through.
+_HUMIDITY_FFFF_IS_NOT_FITTED: frozenset[Model] = frozenset({Model.IBS_TH2})
 
 
 def _boundary_service_info(
@@ -4452,6 +4572,10 @@ def test_adv_humidity_boundary_invariant(model: Model) -> None:
     )
     assert corrupt.device_type is model
     assert corrupt_result.entity_values.get(_HUMIDITY_KEY) is None
+    if model in _HUMIDITY_FFFF_IS_NOT_FITTED:
+        assert corrupt_result.entity_values.get(_TEMPERATURE_KEY) is not None
+    else:
+        assert corrupt_result.entity_values.get(_TEMPERATURE_KEY) is None
 
 
 def test_adv_humidity_boundary_covers_every_sensor_model() -> None:

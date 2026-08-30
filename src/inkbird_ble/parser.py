@@ -570,6 +570,12 @@ def try_parse_model(value: str | Model | None) -> Model | None:
 # a bogus 6553.5°C reading.
 BBQ_PROBE_NOT_CONNECTED = frozenset((0xFFFF, -1))
 
+# The IBS-P01B advertises under the same ``tps`` name as the IBS-TH2, but it
+# has no humidity sensor. Instead it sends 0x0000 (older firmware) or 0xFFFF
+# (firmware 2.3.0) in the humidity field. Neither value means the packet is
+# corrupt, so they must not trigger the corrupt-packet check below.
+HUMIDITY_SENSOR_NOT_FITTED = frozenset((0, 0xFFFF))
+
 # Inkbird hygrometers occasionally emit a corrupt advertisement where the
 # unsigned humidity field is garbage (e.g. 0xFFFF -> 6553.5%) and the
 # temperature reads 0. Relative humidity cannot exceed 100%, so a reading
@@ -1242,9 +1248,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if TYPE_CHECKING:
             assert self._device_type is not None
         temp, hum = MODEL_INFO[self._device_type].unpacker(temp_hum_bytes)
-        # Only some models report humidity: IBS-TH always, IBS-TH2 when non-zero.
+        # Only some models report humidity: IBS-TH always, IBS-TH2 unless the
+        # humidity field holds one of the "no sensor" values sent by the
+        # IBS-P01B. In that case skip humidity but keep temperature and battery.
         reports_humidity = self._device_type == Model.IBS_TH or (
-            self._device_type == Model.IBS_TH2 and hum != 0
+            self._device_type == Model.IBS_TH2 and hum not in HUMIDITY_SENSOR_NOT_FITTED
         )
         humidity = hum / 100
         if reports_humidity and not self._is_humidity_plausible(humidity):
