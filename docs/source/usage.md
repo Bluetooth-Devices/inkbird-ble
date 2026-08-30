@@ -132,6 +132,38 @@ elif data.poll_needed(service_info, last_poll=None):
     await data.async_poll(ble_device)
 ```
 
+### ITH-11-B offline history helpers
+
+The `ITH-11-B` broadcasts its current temperature, humidity and battery level
+in advertisements. Some devices also expose offline history through a separate
+GATT command sequence used by the official app. `inkbird-ble` does not manage
+that long-running transfer, but it provides ITH-11-B-specific helpers for the
+parts that are useful to downstream integrations:
+
+```python
+from inkbird_ble import (
+    build_ith_11_b_history_clock_command,
+    decode_ith_11_b_history_records,
+    parse_ith_11_b_history_interval,
+)
+
+# Write this payload to fff7 before requesting history.
+clock_payload = build_ith_11_b_history_clock_command()
+
+# Read fff5 to discover the logging interval, when available.
+interval_seconds = parse_ith_11_b_history_interval(config_bytes)
+
+# Pass all fff6 notification payloads produced by the fff4 command 0x01.
+records = decode_ith_11_b_history_records(history_payloads)
+for record in records:
+    print(record.temperature, record.humidity)
+```
+
+Observed ITH-11-B units use `fff6` for notifications, `fff7` for the clock
+write, and `fff4` commands `0x02`, `0x01`, `0x04` for the history sync flow.
+BLE may split the `0x01` response at arbitrary notification boundaries, so pass
+every payload in order to `decode_ith_11_b_history_records()`.
+
 ## Building a `BluetoothServiceInfoBleak` outside Home Assistant
 
 When you are not running inside Home Assistant you can construct the
