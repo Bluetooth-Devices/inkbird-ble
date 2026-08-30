@@ -2047,6 +2047,133 @@ async def test_passive_polling_fails_generic_bleak_error() -> None:
     clear_cache_mock.assert_not_awaited()
 
 
+def _polling_service_info() -> BluetoothServiceInfoBleak:
+    """Return an ITH-11-B advertisement suitable for the poll tests."""
+    return make_bluetooth_service_info(
+        name="N0BYD",
+        manufacturer_data={},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+
+
+@pytest.mark.asyncio
+async def test_passive_polling_missing_service_clears_cache() -> None:
+    """A cached GATT database without the service clears the cache and retries.
+
+    ``get_service`` answers ``None`` for an unknown UUID, so the poll must not
+    dereference it. The failure has to surface as a Bleak error so the caller
+    treats it as an ordinary poll failure rather than an unexpected crash.
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
+    parser.update(_polling_service_info())
+    clear_cache_mock = AsyncMock()
+    mock_client = MagicMock(disconnect=AsyncMock(), clear_cache=clear_cache_mock)
+    mock_client.services.get_service.return_value = None
+
+    with (
+        pytest.raises(BleakCharacteristicNotFoundError),
+        patch("inkbird_ble.parser.establish_connection", return_value=mock_client),
+    ):
+        await parser.async_poll(
+            BLEDevice(address="aa:bb:cc:dd:ee:ff", name="N0BYD", details={})
+        )
+
+    clear_cache_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_passive_polling_missing_service_recovers_after_cache_clear() -> None:
+    """A stale service cache self-heals: the retry after the clear succeeds."""
+    parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
+    parser.update(_polling_service_info())
+    mock_client = MagicMock(disconnect=AsyncMock(), clear_cache=AsyncMock())
+    # First attempt sees a stale cache with no service; the refreshed cache
+    # returned after ``clear_cache`` has it.
+    mock_client.services.get_service.side_effect = [None, MagicMock()]
+    mock_client.read_gatt_char = AsyncMock(
+        return_value=b"rtdth\xd8\x00\xef\x01a\x00\x90\x04"
+    )
+
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="aa:bb:cc:dd:ee:ff", name="N0BYD", details={})
+        )
+
+    values = {
+        key.key: value.native_value for key, value in update.entity_values.items()
+    }
+    assert values["temperature"] == 21.6
+    assert values["humidity"] == 49.5
+
+
+@pytest.mark.asyncio
+async def test_passive_polling_missing_characteristic_clears_cache() -> None:
+    """A service present but missing its characteristic takes the same path.
+
+    ``BleakGATTService.get_characteristic`` also answers ``None``, which would
+    otherwise reach ``read_gatt_char`` as ``None``.
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.ITH_11_B)
+    parser.update(_polling_service_info())
+    mock_service = MagicMock()
+    mock_service.get_characteristic.return_value = None
+    clear_cache_mock = AsyncMock()
+    read_gatt_char_mock = AsyncMock(return_value=b"rtdth\xd8\x00\xef\x01a\x00\x90\x04")
+    mock_client = MagicMock(
+        disconnect=AsyncMock(),
+        clear_cache=clear_cache_mock,
+        read_gatt_char=read_gatt_char_mock,
+    )
+    mock_client.services.get_service.return_value = mock_service
+
+    with (
+        pytest.raises(BleakCharacteristicNotFoundError),
+        patch("inkbird_ble.parser.establish_connection", return_value=mock_client),
+    ):
+        await parser.async_poll(
+            BLEDevice(address="aa:bb:cc:dd:ee:ff", name="N0BYD", details={})
+        )
+
+    clear_cache_mock.assert_awaited_once()
+    read_gatt_char_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_int_11i_b_poll_missing_temperature_characteristic() -> None:
+    """The INT-11I-B temperature characteristic is required, not optional.
+
+    Unlike the battery characteristic, a missing ``ff01`` must fail into the
+    clear-cache retry rather than reading from ``None``.
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
+    parser.update(_int_11i_b_service_info())
+    mock_service = MagicMock()
+    mock_service.get_characteristic.return_value = None
+    clear_cache_mock = AsyncMock()
+    read_gatt_char_mock = AsyncMock(return_value=b"\x60\x1d")
+    mock_client = MagicMock(
+        disconnect=AsyncMock(),
+        clear_cache=clear_cache_mock,
+        read_gatt_char=read_gatt_char_mock,
+    )
+    mock_client.services.get_service.return_value = mock_service
+
+    with (
+        pytest.raises(BleakCharacteristicNotFoundError),
+        patch("inkbird_ble.parser.establish_connection", return_value=mock_client),
+    ):
+        await parser.async_poll(
+            BLEDevice(address="A4:C1:38:C9:88:65", name="INT-11I-B", details={})
+        )
+
+    clear_cache_mock.assert_awaited_once()
+    read_gatt_char_mock.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_passive_detect_iam_t1() -> None:
     """Test polling with passing data."""

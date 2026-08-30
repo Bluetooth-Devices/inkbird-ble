@@ -552,6 +552,22 @@ async def async_connect_action(
     raise AssertionError(msg)  # pragma: no cover
 
 
+def _require_characteristic(service: Any, uuid: UUID | None) -> BleakGATTCharacteristic:
+    """Return the characteristic for ``uuid``, raising when it is absent.
+
+    ``BleakGATTService.get_characteristic`` returns ``None`` for an unknown
+    UUID, which would otherwise be handed to ``read_gatt_char`` as ``None``.
+    Raising ``BleakCharacteristicNotFoundError`` instead routes the failure
+    into ``async_connect_action``'s clear-cache retry — the recovery a stale
+    cached GATT database actually needs. A plain ``BleakError`` would retry
+    *without* clearing the cache and so keep failing the same way.
+    """
+    char = service.get_characteristic(uuid)
+    if char is None:
+        raise BleakCharacteristicNotFoundError(str(uuid))
+    return char
+
+
 @lru_cache
 def try_parse_model(value: str | Model | None) -> Model | None:
     """Try to parse the value into a model.
@@ -1156,9 +1172,15 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             assert self._device_type is not None
         dev_info = MODEL_INFO[self._device_type]
         service = client.services.get_service(dev_info.service_uuid)
+        if service is None:
+            # A stale cached GATT database can omit the service entirely.
+            # Dereferencing ``None`` here would raise ``AttributeError``, which
+            # escapes ``async_connect_action`` untouched — no cache clear, no
+            # retry, and an unexpected exception out of ``async_poll``.
+            raise BleakCharacteristicNotFoundError(str(dev_info.service_uuid))
         if self._device_type is Model.INT_11I_B:
             return await self._async_read_int_11i_b(client, service)
-        char = service.get_characteristic(dev_info.characteristic_uuid)
+        char = _require_characteristic(service, dev_info.characteristic_uuid)
         return await client.read_gatt_char(char)
 
     async def _async_read_int_11i_b(
@@ -1173,7 +1195,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         existing ``async_poll`` short-read guards still apply. The battery
         characteristic is optional: if it is absent we return temperature only.
         """
-        temp_char = service.get_characteristic(INT_11I_B_TEMP_CHARACTERISTIC_UUID)
+        temp_char = _require_characteristic(service, INT_11I_B_TEMP_CHARACTERISTIC_UUID)
         temperature = await client.read_gatt_char(temp_char)
         if len(temperature) < INT_11I_B_TEMP_READ_LEN:
             # A short temperature read must stay short so the decode guard drops
