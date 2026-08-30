@@ -388,6 +388,13 @@ MODEL_INFO = {
         notify_uuid=None,
         use_local_name_for_device=False,
         parse_adv=True,
+        # Advertisement-only: unlike the other 17-byte sensors this model
+        # exposes no data service/characteristic, so a connectable poll has
+        # nothing to read. Without this flag it lands in SENSOR_MODELS and
+        # ``_async_poll_action`` hands ``None`` to ``get_service``, which
+        # raises ValueError out of bleak — not a BleakError, so it escapes
+        # the reconnect handler and surfaces as an unexpected poll failure.
+        supports_polling=False,
     ),
     Model.IHT_2PB: ModelInfo(
         name="IHT-2PB",
