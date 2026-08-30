@@ -4944,3 +4944,70 @@ def test_supported_devices_doc_mentions_every_model() -> None:
     doc_text = doc_path.read_text(encoding="utf-8")
     missing = [m.value for m in Model if m.value not in doc_text]
     assert missing == [], f"Models missing from supported_devices.md: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_async_start_is_idempotent_while_notifying() -> None:
+    """A second ``async_start`` must not spawn a second notify session.
+
+    ``docs/source/usage.md`` shows ``async_start`` being called from the
+    per-advertisement dispatch (``if data.uses_notify: await
+    data.async_start(...)``), so a consumer calls it once per advertisement.
+    Each call used to create a fresh task and overwrite ``_notify_task``,
+    orphaning the previous one: it kept its own connection open and kept
+    reconnecting in ``_async_start_notify``'s ``while self._running`` loop,
+    and ``async_stop`` could only cancel the task it still held a reference
+    to.
+    """
+    parser = INKBIRDBluetoothDeviceData(Model.IAM_T1, {}, MagicMock(), MagicMock())
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    ble_device = BLEDevice(address="62:00:A1:3C:AE:7B", name="Ink@IAM-T1", details={})
+    disconnect_mock = AsyncMock()
+    mock_client = MagicMock(start_notify=AsyncMock(), disconnect=disconnect_mock)
+    with patch(
+        "inkbird_ble.parser.establish_connection", return_value=mock_client
+    ) as connect_mock:
+        await parser.async_start(service_info, ble_device)
+        await asyncio.sleep(0)
+        await parser.async_start(service_info, ble_device)
+        await asyncio.sleep(0)
+        assert connect_mock.call_count == 1
+        await parser.async_stop()
+
+    # The single session was torn down; no orphan is left holding a client.
+    assert disconnect_mock.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_async_start_restarts_after_stop() -> None:
+    """``async_stop`` then ``async_start`` must start notifying again."""
+    parser = INKBIRDBluetoothDeviceData(Model.IAM_T1, {}, MagicMock(), MagicMock())
+    service_info = make_bluetooth_service_info(
+        name="Ink@IAM-T1",
+        manufacturer_data={12628: b"AC-6200a13cae\x00\x00"},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="62:00:A1:3C:AE:7B",
+        rssi=-44,
+        service_data={},
+        source="local",
+    )
+    ble_device = BLEDevice(address="62:00:A1:3C:AE:7B", name="Ink@IAM-T1", details={})
+    mock_client = MagicMock(start_notify=AsyncMock(), disconnect=AsyncMock())
+    with patch(
+        "inkbird_ble.parser.establish_connection", return_value=mock_client
+    ) as connect_mock:
+        await parser.async_start(service_info, ble_device)
+        await asyncio.sleep(0)
+        await parser.async_stop()
+        await parser.async_start(service_info, ble_device)
+        await asyncio.sleep(0)
+        assert connect_mock.call_count == 2
+        await parser.async_stop()
