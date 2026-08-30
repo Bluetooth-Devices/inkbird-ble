@@ -4944,3 +4944,53 @@ def test_supported_devices_doc_mentions_every_model() -> None:
     doc_text = doc_path.read_text(encoding="utf-8")
     missing = [m.value for m in Model if m.value not in doc_text]
     assert missing == [], f"Models missing from supported_devices.md: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# Truncated-advertisement guard.
+#
+# Detection gates on an exact ``message_length``, but that chain only runs
+# while ``device_type`` is unknown. A parser constructed with an explicit
+# model (Home Assistant restores the stored model on restart) dispatches
+# every subsequent advertisement straight to the decoder, so a truncated or
+# empty manufacturer-data payload reached the fixed-offset slicing.
+# ---------------------------------------------------------------------------
+
+
+def _adv_with_payload(payload: bytes) -> BluetoothServiceInfoBleak:
+    return make_bluetooth_service_info(
+        name="sps",
+        manufacturer_data={2044: payload},
+        service_uuids=["0000fff0-0000-1000-8000-00805f9b34fb"],
+        address="aa:bb:cc:dd:ee:ff",
+        rssi=-60,
+        service_data={},
+        source="local",
+    )
+
+
+@pytest.mark.parametrize(
+    "model", sorted(SENSOR_MODELS | BBQ_MODELS, key=lambda m: m.value)
+)
+@pytest.mark.parametrize("payload", [b"", b"\x01\x02", b"\x01" * 6])
+def test_truncated_advertisement_is_dropped(model: Model, payload: bytes) -> None:
+    """A short advertisement for a known model yields no values, not a crash.
+
+    Advertisement bytes come off the radio unauthenticated, so any nearby
+    device can emit a truncated payload under a known address. Before the
+    length guard this raised ``IndexError`` (9/17/18-byte decoders slicing
+    fixed offsets) or ``struct.error`` (BBQ decoders unpacking ``data[10:]``)
+    out of the callback that habluetooth invokes for every advertisement.
+    """
+    parser = INKBIRDBluetoothDeviceData(model)
+    update = parser.update(_adv_with_payload(payload))
+    # ``signal_strength`` comes from the RSSI on the advertisement itself, not
+    # from the payload, so it survives; nothing decoded may.
+    assert [key.key for key in update.entity_values] == ["signal_strength"]
+
+
+def test_full_length_advertisement_still_parses() -> None:
+    """The guard must not reject a well-formed advertisement."""
+    parser = INKBIRDBluetoothDeviceData(Model.IBS_TH)
+    update = parser.update(_adv_with_payload(b"\xc7\x12\x00\xc8=V\x06"))
+    assert {key.key for key in update.entity_values} >= {"temperature", "humidity"}
