@@ -27,6 +27,7 @@ from inkbird_ble import INKBIRDBluetoothDeviceData as PublicData
 from inkbird_ble import Model as PublicModel
 from inkbird_ble.parser import (
     BBQ_MODELS,
+    BW_PROBE_MODELS,
     GATT_POLL_MODELS,
     IHT_2PB_NOTIFY_UUID,
     IHT_2PB_WRITE_UUID,
@@ -4887,7 +4888,7 @@ def test_model_info_covers_every_model() -> None:
 def test_every_model_has_a_dispatch_category() -> None:
     """Every ``Model`` enum member must belong to at least one dispatch set.
 
-    The parser reaches a model via one of four routes:
+    The parser reaches a model via one of five routes:
 
     * ``BBQ_MODELS`` — advertisement parsed by ``_update_bbq_model``;
     * ``SENSOR_MODELS`` — advertisement parsed by the length-keyed dispatch
@@ -4895,14 +4896,18 @@ def test_every_model_has_a_dispatch_category() -> None:
     * ``NOTIFY_MODELS`` — GATT notifications dispatched through
       ``_notify_callback`` / ``_notify_dispatch``;
     * ``GATT_POLL_MODELS`` — connectable-only probes with no usable
-      advertisement payload (e.g. ``INT-11P-B``).
+      advertisement payload (e.g. ``INT-11P-B``);
+    * ``BW_PROBE_MODELS`` — INT-BW wireless probes decoded from the
+      advertisement (e.g. ``INT-31-BW``).
 
-    A model that falls outside all four sets has no decode path and would
+    A model that falls outside all five sets has no decode path and would
     appear to "exist" but never emit a reading. Asserting equality (rather
     than subset) also catches the inverse drift — a stale entry left behind
     after a ``Model`` removal.
     """
-    assert set(Model) == (BBQ_MODELS | SENSOR_MODELS | NOTIFY_MODELS | GATT_POLL_MODELS)
+    assert set(Model) == (
+        BBQ_MODELS | SENSOR_MODELS | NOTIFY_MODELS | GATT_POLL_MODELS | BW_PROBE_MODELS
+    )
 
 
 def test_notify_init_writes_only_on_notify_models() -> None:
@@ -4944,3 +4949,102 @@ def test_supported_devices_doc_mentions_every_model() -> None:
     doc_text = doc_path.read_text(encoding="utf-8")
     missing = [m.value for m in Model if m.value not in doc_text]
     assert missing == [], f"Models missing from supported_devices.md: {missing}"
+
+
+def _bw_service_info(
+    payload_hex: str, name: str = "INT-31-BW"
+) -> BluetoothServiceInfoBleak:
+    return make_bluetooth_service_info(
+        name=name,
+        manufacturer_data={40041: bytes.fromhex(payload_hex)},
+        service_uuids=["0000ff00-0000-1000-8000-00805f9b34fb"],
+        address="A4:C1:38:F0:EF:D0",
+        rssi=-27,
+        service_data={},
+        source="local",
+    )
+
+
+def test_int_31_bw() -> None:
+    """INT-31-BW broadcasts four probe sensors, ambient and battery."""
+    parser = INKBIRDBluetoothDeviceData()
+    service_info = _bw_service_info("1a69d0eff038c1a401662266220823622384234c03643858")
+    result = parser.update(service_info)
+    assert parser.device_type is Model.INT_31_BW
+    assert result.devices[None].name == "INT-31-BW EFD0"
+    values = {k.key: v.native_value for k, v in result.entity_values.items()}
+    assert values == {
+        "temperature_probe_1_sensor_1": 31.1,
+        "temperature_probe_1_sensor_2": 32.0,
+        "temperature_probe_1_sensor_3": 32.5,
+        "temperature_probe_1_sensor_4": 32.7,
+        "temperature_probe_1_ambient": 29.1,
+        "probe_1_battery": 100,
+        "signal_strength": -27,
+    }
+    assert not parser.poll_needed(service_info, None)
+
+
+def test_int_33_bw_probes() -> None:
+    """INT-33-BW advertisements carry one probe each, selected by probe number."""
+    parser = INKBIRDBluetoothDeviceData()
+    parser.update(
+        _bw_service_info(
+            "1a69d0eff038c1a401662266220823622384234c03643858", "INT-33-BW"
+        )
+    )
+    assert parser.device_type is Model.INT_33_BW
+    parser.update(
+        _bw_service_info(
+            "1a69d0eff038c1a402a522a5224823a523c9235703503859", "INT-33-BW"
+        )
+    )
+    result = parser.update(
+        _bw_service_info(
+            "1a69d0eff038c1a4038c228c224823a723ca23570332385a", "INT-33-BW"
+        )
+    )
+    values = {k.key: v.native_value for k, v in result.entity_values.items()}
+    assert values["temperature_probe_1_sensor_4"] == 32.7
+    assert values["temperature_probe_2_sensor_1"] == 31.5
+    assert values["temperature_probe_2_ambient"] == 29.7
+    assert values["probe_2_battery"] == 80
+    # Probe 3 is the three-sensor probe without an ambient sensor.
+    assert values["temperature_probe_3_sensor_3"] == 32.9
+    assert "temperature_probe_3_sensor_4" not in values
+    assert "temperature_probe_3_ambient" not in values
+    assert values["probe_3_battery"] == 50
+
+
+@pytest.mark.parametrize(
+    ("payload_hex", "name"),
+    [
+        ("1a69d0eff038c1a401662266220823622384234c03ff3858", "INT-31-BW"),
+        ("1a69d0eff038c1a401662266220823622384234c036438", "INT-31-BW"),
+        ("1a69d0eff038c1a402662266220823622384234c03643858", "INT-31-BW"),
+        ("1a69d0eff038c1a400662266220823622384234c03643858", "INT-33-BW"),
+        ("1a69d0eff038c1a404662266220823622384234c03643858", "INT-33-BW"),
+    ],
+    ids=["implausible_battery", "short", "no_probe_2", "probe_0", "no_probe_4"],
+)
+def test_bw_corrupt_advertisement_dropped(payload_hex: str, name: str) -> None:
+    """A corrupt or out-of-range INT-BW advertisement emits no readings."""
+    parser = INKBIRDBluetoothDeviceData(Model(name))
+    result = parser.update(_bw_service_info(payload_hex, name))
+    assert set(result.entity_values) == {
+        DeviceKey(key="signal_strength", device_id=None)
+    }
+
+
+def test_int_31_bw_invalid_temperatures_are_none() -> None:
+    """Error / over / under-range markers clear the sensor instead of reporting."""
+    parser = INKBIRDBluetoothDeviceData()
+    result = parser.update(
+        _bw_service_info("1a69d0eff038c1a401fe7ffe7fff7f00808022fe7f643858")
+    )
+    values = {k.key: v.native_value for k, v in result.entity_values.items()}
+    assert values["temperature_probe_1_sensor_1"] is None
+    assert values["temperature_probe_1_sensor_2"] is None
+    assert values["temperature_probe_1_sensor_3"] is None
+    assert values["temperature_probe_1_sensor_4"] == 31.3
+    assert values["temperature_probe_1_ambient"] is None
