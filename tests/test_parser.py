@@ -41,6 +41,7 @@ from inkbird_ble.parser import (
 )
 
 from . import async_fire_time_changed
+from .test_int_14_bw import TEMP_FRAME, _MockInt14BwClient, _run_session
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -4804,6 +4805,22 @@ async def test_notify_idt_34c_b_short_packet_dropped() -> None:
     assert updates == []
 
 
+@pytest.mark.asyncio
+async def test_notify_int_14_bw_short_frame_dropped() -> None:
+    """A short / wrong-length INT-14-BW ff01 notification is dropped whole.
+
+    Boundary-net coverage for the INT-14-BW notify decoder, mirroring
+    ``test_notify_idt_34c_b_short_packet_dropped``. The full authenticated
+    session (handshake, temperature decode, dock masking, battery) is
+    covered in ``tests/test_int_14_bw.py``; the mock client and frame are
+    shared with it so the boundary test cannot drift from the protocol.
+    """
+    updates: list[SensorUpdate] = []
+    client = _MockInt14BwClient(temp_frame=TEMP_FRAME[:10])
+    await _run_session(client, updates)
+    assert updates == []
+
+
 # Notify boundary net — extends the ADV boundary-net pattern
 # (#213/#214/#216) to ``NOTIFY_MODELS``. Each notify model must declare at
 # least one named corrupt-input test, so a future notify protocol added to
@@ -4822,6 +4839,7 @@ _NOTIFY_CORRUPT_INPUT_TESTS: dict[Model, tuple[str, ...]] = {
     ),
     Model.IHT_2PB: ("test_notify_iht_2pb_skips_invalid_packets",),
     Model.IDT_34C_B: ("test_notify_idt_34c_b_short_packet_dropped",),
+    Model.INT_14_BW: ("test_notify_int_14_bw_short_frame_dropped",),
 }
 
 
