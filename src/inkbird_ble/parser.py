@@ -953,12 +953,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             await client.start_notify(INT_14_BW_BATTERY_UUID, self._notify_callback)
         try:
             bat_data = await client.read_gatt_char(INT_14_BW_BATTERY_UUID)
-            if bat_data and bat_data[0] != INT_14_BW_BATTERY_NO_DATA:
-                bat = min(bat_data[0], 100)
-                if self._is_battery_plausible(bat):
-                    self.update_predefined_sensor(
-                        SensorLibrary.BATTERY__PERCENTAGE, bat
-                    )
+            if (
+                bat_data
+                and bat_data[0] != INT_14_BW_BATTERY_NO_DATA
+                and self._is_battery_plausible(bat_data[0])
+            ):
+                self.update_predefined_sensor(
+                    SensorLibrary.BATTERY__PERCENTAGE, bat_data[0]
+                )
         except (BleakError, TimeoutError) as err:
             _LOGGER.debug("INT-14-BW battery read failed: %s", err)
         await client.write_gatt_char(
@@ -1186,12 +1188,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 self._publish_int_14_bw_temperatures()
             return
         if uuid == str(INT_14_BW_BATTERY_UUID):
-            if data and data[0] != INT_14_BW_BATTERY_NO_DATA:
-                bat = min(data[0], 100)
-                if self._is_battery_plausible(bat):
-                    self.update_predefined_sensor(
-                        SensorLibrary.BATTERY__PERCENTAGE, bat
-                    )
+            if (
+                data
+                and data[0] != INT_14_BW_BATTERY_NO_DATA
+                and self._is_battery_plausible(data[0])
+            ):
+                self.update_predefined_sensor(
+                    SensorLibrary.BATTERY__PERCENTAGE, data[0]
+                )
             return
         if len(data) < INT_14_BW_PROBE_COUNT * 4:
             _LOGGER.debug(
