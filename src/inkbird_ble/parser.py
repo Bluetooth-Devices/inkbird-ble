@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import logging
 import struct
+import time
 from dataclasses import dataclass
 from enum import Enum, StrEnum, auto
 from functools import lru_cache
@@ -55,6 +56,7 @@ class Model(StrEnum):
     INT_11P_B = "INT-11P-B"
     INT_11I_B = "INT-11I-B"
     IDT_34C_B = "IDT-34c-B"
+    INT_14_BW = "INT-14-BW"
 
 
 class ModelType(Enum):
@@ -224,6 +226,101 @@ IDT_34C_B_BATTERY_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
 IDT_34C_B_NO_PROBE = 0x7FFE
 IDT_34C_B_PROBE_COUNT = 6
 IDT_34C_B_DATA_LENGTH = 13  # 6 probes (12 bytes) + 1 trailing status byte
+
+# INT-14-BW 4-probe BBQ thermometer (also sold as the IBT-4XS). Like the
+# IDT-34c-B it advertises only its local name and the ff00 service UUID and
+# streams over GATT, but the link must first pass a CRC8 challenge/response
+# handshake on the ff02 command channel or the device disconnects after ~30s.
+# Protocol reverse-engineered from the vendor app; see
+# https://github.com/paul43210/inkbird-bw-ble and the reference integration
+# https://github.com/boris327/ha-inkbird-int14bw (validated on hardware).
+INT_14_BW_SERVICE_UUID = UUID("0000ff00-0000-1000-8000-00805f9b34fb")
+INT_14_BW_NOTIFY_UUID = UUID("0000ff01-0000-1000-8000-00805f9b34fb")
+INT_14_BW_COMMAND_UUID = UUID("0000ff02-0000-1000-8000-00805f9b34fb")
+INT_14_BW_STATE_UUID = UUID("0000ff03-0000-1000-8000-00805f9b34fb")
+INT_14_BW_BATTERY_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
+INT_14_BW_PROBE_COUNT = 4
+# ff01 frame: four [internal, ambient] signed LE16 pairs in tenths of a
+# degree Celsius (16 bytes), then a frame counter and a flag byte.
+INT_14_BW_DATA_LENGTH = 18
+# ff03 dock/state channel: four [status, 0x10] pairs then a trailer. The
+# per-probe status byte sits at offset probe*2; bit 0x02 is set while the
+# probe charges in the base station (a docked probe is not measuring).
+INT_14_BW_DOCKED_FLAG = 0x02
+# Error / over-range / under-range markers in a temperature slot.
+INT_14_BW_INVALID_TEMPS = frozenset((32766, 32767, -32768))
+INT_14_BW_AUTH_CHALLENGE_REQUEST = b"\x01\xfb"
+INT_14_BW_CHALLENGE_PAYLOAD_LENGTH = 6
+# A 0x7F first byte on the 2a19 read marks "no battery data", not 127 %.
+INT_14_BW_BATTERY_NO_DATA = 0x7F
+INT_14_BW_CMD_CHALLENGE = 0xFB
+INT_14_BW_CMD_AUTH_ACK = 0xFC
+# Written after the handshake to request the current temperature/state/battery.
+INT_14_BW_STATE_REQUEST = bytes((0x02, 0xF1, 0x01, 0x02, 0xF1, 0x03, 0x02, 0xF1, 0x19))
+
+
+def _crc8(data: bytes, poly: int, init: int) -> int:
+    """Non-reflected MSB-first CRC-8 (RefIn=RefOut=false, XorOut=0)."""
+    crc = init
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            crc = ((crc << 1) ^ poly) & 0xFF if crc & 0x80 else (crc << 1) & 0xFF
+    return crc
+
+
+def int_14_bw_auth_response(challenge: bytes, now: float | None = None) -> bytes:
+    """Build the ``08 fc <7 bytes>`` verify response for a 6-byte challenge.
+
+    The 7-byte response is the current wall-clock time (LE16 milliseconds,
+    LE32 epoch seconds) plus one CRC-8 byte that folds the challenge in
+    through a two-stage CRC chain: DVB-S2 (poly 0xD5) over the timestamp,
+    CDMA2000 (poly 0x9B, init 0xFF) over the challenge, then DVB-S2 over
+    both. The device cannot verify the timestamp itself (no RTC at auth
+    time), so any plausible epoch passes. The INT-31-BW/INT-33-BW family
+    uses the same handshake
+    (https://github.com/Bluetooth-Devices/inkbird-ble/pull/261); sharing one
+    helper across the families is a natural follow-up once both land.
+    """
+    if now is None:
+        now = time.time()
+    epoch = int(now)
+    ms_rem = int((now % 1) * 1000)
+    body = bytearray(
+        [
+            ms_rem & 0xFF,
+            (ms_rem >> 8) & 0xFF,
+            epoch & 0xFF,
+            (epoch >> 8) & 0xFF,
+            (epoch >> 16) & 0xFF,
+            (epoch >> 24) & 0xFF,
+        ]
+    )
+    inner = _crc8(bytes(body), 0xD5, 0x00)
+    challenge_crc = _crc8(challenge, 0x9B, 0xFF)
+    body.append(_crc8(bytes(body) + bytes((inner, challenge_crc)), 0xD5, 0x00))
+    return bytes((0x08, 0xFC, *body))
+
+
+def int_14_bw_clock_sync(now: float | None = None) -> bytes:
+    """Build the ``07 19 <epoch LE32> <ms LE16>`` frame sent after auth."""
+    if now is None:
+        now = time.time()
+    epoch = int(now)
+    ms_rem = int((now % 1) * 1000)
+    return bytes(
+        (
+            0x07,
+            0x19,
+            epoch & 0xFF,
+            (epoch >> 8) & 0xFF,
+            (epoch >> 16) & 0xFF,
+            (epoch >> 24) & 0xFF,
+            ms_rem & 0xFF,
+            (ms_rem >> 8) & 0xFF,
+        )
+    )
+
 
 MODEL_INFO = {
     Model.IBBQ_1: ModelInfo(
@@ -453,6 +550,25 @@ MODEL_INFO = {
         use_local_name_for_device=False,
         parse_adv=False,
     ),
+    Model.INT_14_BW: ModelInfo(
+        name="INT-14-BW",
+        model_type=ModelType.SENSOR,
+        local_name="int-14-bw",
+        # No usable advertisement payload - the probe temperatures arrive
+        # over the ff01 notify characteristic after an authenticated session
+        # is established on ff02. message_length=0 keeps it out of the adv
+        # length / poll dispatch sets; it is matched by name via
+        # NO_ADV_NOTIFY_NAMES before the manufacturer-data guard in
+        # _start_update. The unpacker is unused (notify-only) but ModelInfo
+        # requires one, so the shared placeholder is reused (cf. IDT-34c-B).
+        message_length=0,
+        unpacker=INKBIRD_UNPACK,
+        service_uuid=INT_14_BW_SERVICE_UUID,
+        characteristic_uuid=None,
+        notify_uuid=INT_14_BW_NOTIFY_UUID,
+        use_local_name_for_device=False,
+        parse_adv=False,
+    ),
 }
 
 INKBIRD_NAMES = {
@@ -515,6 +631,7 @@ GATT_POLL_MODELS = {Model.INT_11P_B, Model.INT_11I_B}
 # _start_update. Maps the exact lower-cased local name to its model.
 NO_ADV_NOTIFY_NAMES = {
     MODEL_INFO[Model.IDT_34C_B].local_name: Model.IDT_34C_B,
+    MODEL_INFO[Model.INT_14_BW].local_name: Model.INT_14_BW,
 }
 
 MANUFACTURER_DATA_ID_EXCLUDES = {2}
@@ -661,6 +778,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self._device_data = device_data.copy() if device_data else {}
         self._update_callback = update_callback
         self._device_data_changed_callback = device_data_changed_callback
+        # INT-14-BW per-probe state carried between the ff01 (temperature)
+        # and ff03 (dock state) notifications.
+        self._int_14_bw_raw: list[float | None] = [None] * INT_14_BW_PROBE_COUNT
+        self._int_14_bw_raw_ambient: list[float | None] = [None] * INT_14_BW_PROBE_COUNT
+        self._int_14_bw_docked: list[bool] = [False] * INT_14_BW_PROBE_COUNT
 
     @property
     def uses_notify(self) -> bool:
@@ -715,6 +837,13 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                 disconnect_future.set_result(None)
 
         client.set_disconnected_callback(_resolve_disconnect_callback)
+        if self._device_type is Model.INT_14_BW:
+            # The link drops ~30s after connect unless the CRC8
+            # challenge/response handshake on ff02 succeeds, so authenticate
+            # before subscribing to the temperature stream.
+            await self._async_int_14_bw_session(client)
+            await disconnect_future  # wait for disconnect
+            return
         if self._device_type is Model.IDT_34C_B:
             # Read battery before subscribing so the value is stored and
             # included in the very first temperature SensorUpdate.
@@ -757,6 +886,89 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             with contextlib.suppress(BleakError):
                 await client.write_gatt_char(char_uuid, payload, response=False)
         await disconnect_future  # wait for disconnect
+
+    async def _async_int_14_bw_session(
+        self, client: BleakClientWithServiceCache
+    ) -> None:
+        """Authenticate an INT-14-BW link and start its streams.
+
+        Frames on ff02 are ``<LEN><TYPE>[PAYLOAD...]`` where LEN counts
+        TYPE+PAYLOAD. Handshake: the central sends ``01 fb``, the device
+        answers ``07 fb <6-byte challenge>``, the central replies with the
+        CRC8 verify response from :func:`int_14_bw_auth_response`, and the
+        device ACKs with ``02 fc 00``. After the handshake a clock sync and
+        the state requests are written; ff01 (temperatures) and ff03 (dock
+        state) then stream, and the battery is read once explicitly (the
+        device does not reliably push an unsolicited battery notification
+        right after subscribing, matching the IDT-34c-B).
+        """
+        challenge_evt = asyncio.Event()
+        authed_evt = asyncio.Event()
+        challenge: list[bytes] = []
+
+        def _on_command(_sender: BleakGATTCharacteristic, data: bytearray) -> None:
+            i = 0
+            while i + 1 < len(data):
+                flen = data[i]
+                if flen < 1 or i + 1 + flen > len(data):
+                    break
+                frame_type = data[i + 1]
+                payload = bytes(data[i + 2 : i + 1 + flen])
+                if (
+                    frame_type == INT_14_BW_CMD_CHALLENGE
+                    and len(payload) == INT_14_BW_CHALLENGE_PAYLOAD_LENGTH
+                ):
+                    challenge.append(payload)
+                    challenge_evt.set()
+                elif (
+                    frame_type == INT_14_BW_CMD_AUTH_ACK
+                    and payload
+                    and payload[0] == 0x00
+                ):
+                    authed_evt.set()
+                i += 1 + flen
+
+        await client.start_notify(INT_14_BW_COMMAND_UUID, _on_command)
+        await client.write_gatt_char(
+            INT_14_BW_COMMAND_UUID, INT_14_BW_AUTH_CHALLENGE_REQUEST, response=False
+        )
+        # No challenge within the window means the device is not an
+        # INT-14-BW (or is wedged); raising ends the action so the notify
+        # loop disconnects and retries with its normal backoff.
+        await asyncio.wait_for(challenge_evt.wait(), 8)
+        await client.write_gatt_char(
+            INT_14_BW_COMMAND_UUID,
+            int_14_bw_auth_response(challenge[0]),
+            response=False,
+        )
+        with contextlib.suppress(TimeoutError):
+            # Best-effort: the stream starts once the response is accepted
+            # even if the ACK frame itself is missed.
+            await asyncio.wait_for(authed_evt.wait(), 5)
+        await client.start_notify(INT_14_BW_NOTIFY_UUID, self._notify_callback)
+        await client.start_notify(INT_14_BW_STATE_UUID, self._notify_callback)
+        with contextlib.suppress(BleakError):
+            # Live battery updates ride the shared notify callback; the
+            # explicit read below covers the initial value.
+            await client.start_notify(INT_14_BW_BATTERY_UUID, self._notify_callback)
+        try:
+            bat_data = await client.read_gatt_char(INT_14_BW_BATTERY_UUID)
+            if (
+                bat_data
+                and bat_data[0] != INT_14_BW_BATTERY_NO_DATA
+                and self._is_battery_plausible(bat_data[0])
+            ):
+                self.update_predefined_sensor(
+                    SensorLibrary.BATTERY__PERCENTAGE, bat_data[0]
+                )
+        except (BleakError, TimeoutError) as err:
+            _LOGGER.debug("INT-14-BW battery read failed: %s", err)
+        await client.write_gatt_char(
+            INT_14_BW_COMMAND_UUID, int_14_bw_clock_sync(), response=False
+        )
+        await client.write_gatt_char(
+            INT_14_BW_COMMAND_UUID, INT_14_BW_STATE_REQUEST, response=False
+        )
 
     def _notify_callback(
         self, sender: BleakGATTCharacteristic, data: bytearray
@@ -945,6 +1157,85 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             )
         if self._update_callback is None:
             _LOGGER.debug("IDT-34c-B: update_callback not set, dropping update")
+            return
+        self._update_callback(self._finish_update())
+
+    def _notify_int_14_bw(
+        self, sender: BleakGATTCharacteristic, data: bytearray
+    ) -> None:
+        """Parse an INT-14-BW notification.
+
+        Three characteristics share the notify callback: ff03 carries the
+        per-probe dock state, 2a19 a battery percentage, and ff01 the
+        temperature frame. The ff01 frame is four [internal, ambient]
+        signed little-endian int16 pairs in tenths of a degree Celsius
+        (validated on hardware against known temperatures), followed by a
+        frame counter and a flag byte; any other length is corrupt and
+        dropped whole (the #141 corrupt-byte guard family).
+        0x7FFE/0x7FFF/0x8000 mark an absent or invalid reading and are
+        reported as ``None``. A probe docked in the base station (ff03
+        status bit 0x02) is charging, not measuring, so its readings are
+        masked to ``None`` rather than showing the base temperature.
+        """
+        uuid = str(getattr(sender, "uuid", sender)).lower()
+        if uuid == str(INT_14_BW_STATE_UUID):
+            for idx in range(INT_14_BW_PROBE_COUNT):
+                if idx * 2 < len(data):
+                    self._int_14_bw_docked[idx] = bool(
+                        data[idx * 2] & INT_14_BW_DOCKED_FLAG
+                    )
+            if any(value is not None for value in self._int_14_bw_raw):
+                self._publish_int_14_bw_temperatures()
+            return
+        if uuid == str(INT_14_BW_BATTERY_UUID):
+            if (
+                data
+                and data[0] != INT_14_BW_BATTERY_NO_DATA
+                and self._is_battery_plausible(data[0])
+            ):
+                self.update_predefined_sensor(
+                    SensorLibrary.BATTERY__PERCENTAGE, data[0]
+                )
+            return
+        if len(data) < INT_14_BW_PROBE_COUNT * 4:
+            _LOGGER.debug(
+                "INT-14-BW: short temperature frame %d bytes (expected %d)",
+                len(data),
+                INT_14_BW_DATA_LENGTH,
+            )
+            return
+        values = struct.unpack_from("<8h", data)
+        for idx in range(INT_14_BW_PROBE_COUNT):
+            internal, ambient = values[idx * 2], values[idx * 2 + 1]
+            self._int_14_bw_raw[idx] = (
+                None
+                if internal in INT_14_BW_INVALID_TEMPS
+                else round(internal / 10.0, 1)
+            )
+            self._int_14_bw_raw_ambient[idx] = (
+                None if ambient in INT_14_BW_INVALID_TEMPS else round(ambient / 10.0, 1)
+            )
+        self._publish_int_14_bw_temperatures()
+
+    def _publish_int_14_bw_temperatures(self) -> None:
+        """Publish the stored INT-14-BW temperatures with dock masking."""
+        for idx in range(INT_14_BW_PROBE_COUNT):
+            num = idx + 1
+            docked = self._int_14_bw_docked[idx]
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS,
+                None if docked else self._int_14_bw_raw[idx],
+                key=f"temperature_probe_{num}",
+                name=f"Temperature Probe {num}",
+            )
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS,
+                None if docked else self._int_14_bw_raw_ambient[idx],
+                key=f"temperature_probe_{num}_ambient",
+                name=f"Temperature Probe {num} Ambient",
+            )
+        if self._update_callback is None:
+            _LOGGER.debug("INT-14-BW: update_callback not set, dropping update")
             return
         self._update_callback(self._finish_update())
 
@@ -1546,4 +1837,5 @@ INKBIRDBluetoothDeviceData._notify_dispatch = {  # noqa: SLF001
     Model.IAM_T1: INKBIRDBluetoothDeviceData._notify_iam_t1,  # noqa: SLF001
     Model.IHT_2PB: INKBIRDBluetoothDeviceData._notify_iht_2pb,  # noqa: SLF001
     Model.IDT_34C_B: INKBIRDBluetoothDeviceData._notify_idt_34c_b,  # noqa: SLF001
+    Model.INT_14_BW: INKBIRDBluetoothDeviceData._notify_int_14_bw,  # noqa: SLF001
 }

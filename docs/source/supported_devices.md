@@ -25,6 +25,7 @@ must supply it (notify-only devices).
 | `iBBQ-6`                | BBQ probe (6 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 6                                                                |
 | `Generic 18 byte model` | Unknown hygrometer      | advertisement      | 18-byte payload + service UUID     | temperature, humidity, battery                                                 |
 | `IDT-34c-B`             | 6-probe BBQ thermometer | GATT notify        | local name `idt-34c-b`             | temperature × 6 probes, battery                                                |
+| `INT-14-BW`             | 4-probe BBQ thermometer | GATT notify        | local name `int-14-bw`             | temperature × 4 probes, ambient temperature × 4, battery                       |
 
 ## Transport guide
 
@@ -44,7 +45,11 @@ must supply it (notify-only devices).
   activation writes (handled transparently) before it starts streaming. The
   `IDT-34c-B` advertises only a name (no manufacturer data), so it is matched
   by local name; its `ff01` characteristic streams all six probe temperatures
-  in a single notification.
+  in a single notification. `INT-14-BW` is also matched by local name and
+  additionally requires a CRC8 challenge/response handshake on its `ff02`
+  command channel (handled transparently) before `ff01` starts streaming; a
+  probe docked in the base station reports no temperature until it is pulled
+  out.
 
 ## Not supported
 
