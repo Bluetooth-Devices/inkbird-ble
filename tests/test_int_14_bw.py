@@ -370,3 +370,64 @@ async def test_notify_int_14_bw_clean_disconnect_returns() -> None:
 
     await _run_session(client, updates, during_session=_disconnect)
     assert updates, "expected the temperature update before the disconnect"
+
+
+class _MockInt14BwBatteryNoDataClient(_MockInt14BwClient):
+    """Answers the initial battery read with the 0x7F no-data marker."""
+
+    async def read_gatt_char(self, uuid: UUID) -> bytes:
+        assert str(uuid) == str(INT_14_BW_BATTERY_UUID)
+        return b"\x7f"
+
+
+class _MockInt14BwBatteryGarbageClient(_MockInt14BwClient):
+    """Answers the initial battery read with an impossible 200%."""
+
+    async def read_gatt_char(self, uuid: UUID) -> bytes:
+        assert str(uuid) == str(INT_14_BW_BATTERY_UUID)
+        return b"\xc8"
+
+
+@pytest.mark.asyncio
+async def test_notify_int_14_bw_battery_no_data_initial_read() -> None:
+    """A 0x7F no-data initial battery read publishes no battery sensor."""
+    updates: list[SensorUpdate] = []
+    await _run_session(_MockInt14BwBatteryNoDataClient(), updates)
+    assert updates, "expected a temperature update"
+    values: dict[str, Any] = {
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] == 26.0
+    assert "battery" not in values
+
+
+@pytest.mark.asyncio
+async def test_notify_int_14_bw_implausible_battery_rejected() -> None:
+    """A garbage battery byte is dropped by the plausibility guard on both the
+    initial read and the notify path."""
+    updates: list[SensorUpdate] = []
+    client = _MockInt14BwBatteryGarbageClient()
+
+    def _battery_frames() -> None:
+        cb = client._callbacks[str(INT_14_BW_BATTERY_UUID)]  # noqa: SLF001
+        cb(INT_14_BW_BATTERY_UUID, bytearray(b"\xc8"))  # 200 %
+
+    await _run_session(client, updates, during_session=_battery_frames)
+    assert updates, "expected a temperature update"
+    for update in updates:
+        assert "battery" not in {key.key for key in update.entity_values}
+
+
+@pytest.mark.asyncio
+async def test_notify_int_14_bw_short_dock_frame() -> None:
+    """A short ff03 frame updates only the probes it carries and never raises."""
+    updates: list[SensorUpdate] = []
+    client = _MockInt14BwClient()
+    await _run_session(
+        client, updates, during_session=lambda: client.feed_dock_state(b"\x02")
+    )
+    values: dict[str, Any] = {
+        key.key: value.native_value for key, value in updates[-1].entity_values.items()
+    }
+    assert values["temperature_probe_1"] is None  # probe 1 docked by the short frame
+    assert values["temperature_probe_2"] == 28.6
