@@ -132,6 +132,23 @@ elif data.poll_needed(service_info, last_poll=None):
     await data.async_poll(ble_device)
 ```
 
+### INT-14-BW authentication and single connection
+
+The `INT-14-BW` (also sold as the IBT-4XS) drops a GATT link about 30
+seconds after connect unless the client answers its CRC8 challenge on the
+`ff02` command channel. `async_start` performs that handshake
+transparently, syncs the clock, and then subscribes to the temperature
+(`ff01`) and dock-state (`ff03`) streams, so no application code is needed:
+
+```python
+await data.async_start(service_info, ble_device)
+```
+
+A docked probe (charging in the base station) reports `None` until it is
+pulled out and in use. Note the thermometer accepts only one BLE
+connection at a time: while the Inkbird phone app is connected, the
+library cannot connect, and vice versa.
+
 ## Building a `BluetoothServiceInfoBleak` outside Home Assistant
 
 When you are not running inside Home Assistant you can construct the
