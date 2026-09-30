@@ -52,7 +52,9 @@ def _service_info(
     )
 
 
-def _values(parser: INKBIRDBluetoothDeviceData, payload_hex: str) -> dict:
+def _values(
+    parser: INKBIRDBluetoothDeviceData, payload_hex: str
+) -> dict[str, float | None]:
     result = parser.update(_service_info(payload_hex))
     return {k.key: v.native_value for k, v in result.entity_values.items()}
 
