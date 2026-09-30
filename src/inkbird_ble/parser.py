@@ -55,6 +55,8 @@ class Model(StrEnum):
     INT_11P_B = "INT-11P-B"
     INT_11I_B = "INT-11I-B"
     IDT_34C_B = "IDT-34c-B"
+    INT_31_BW = "INT-31-BW"
+    INT_33_BW = "INT-33-BW"
 
 
 class ModelType(Enum):
@@ -224,6 +226,35 @@ IDT_34C_B_BATTERY_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
 IDT_34C_B_NO_PROBE = 0x7FFE
 IDT_34C_B_PROBE_COUNT = 6
 IDT_34C_B_DATA_LENGTH = 13  # 6 probes (12 bytes) + 1 trailing status byte
+
+# INT-31-BW / INT-33-BW wireless probes. The base broadcasts one probe record
+# per advertisement in the manufacturer data: after the 2-byte id, 1 unknown
+# byte and the reversed MAC come the probe number, the core temperature (the
+# lowest probe sensor) and the four probe sensors (signed LE int16, Fahrenheit
+# x 100), the ambient sensor (Fahrenheit x 10), battery %, and a counter.
+# Verified on an INT-31-BW; the INT-33-BW layout is assumed to match.
+
+
+@dataclass(frozen=True)
+class BWProbe:
+    """Sensor layout of one INT-BW probe."""
+
+    sensors: int
+    ambient: bool
+
+
+BW_FULL_PROBE = BWProbe(sensors=4, ambient=True)
+BW_MINI_PROBE = BWProbe(sensors=3, ambient=False)
+BW_PROBES: dict[Model, tuple[BWProbe, ...]] = {
+    Model.INT_31_BW: (BW_FULL_PROBE,),
+    Model.INT_33_BW: (BW_FULL_PROBE, BW_FULL_PROBE, BW_MINI_PROBE),
+}
+BW_MESSAGE_LENGTH = 26
+BW_UNPACK = struct.Struct("<6h").unpack
+BW_PROBE_INDEX = 10
+BW_BATTERY_INDEX = 23
+# Error / over-range / under-range markers (compared against the absolute value).
+BW_INVALID_TEMPS = frozenset((0x7FFE, 0x7FFF, 0x8000))
 
 MODEL_INFO = {
     Model.IBBQ_1: ModelInfo(
@@ -453,6 +484,32 @@ MODEL_INFO = {
         use_local_name_for_device=False,
         parse_adv=False,
     ),
+    Model.INT_31_BW: ModelInfo(
+        name="INT-31-BW",
+        model_type=ModelType.SENSOR,
+        local_name="int-31-bw",
+        message_length=BW_MESSAGE_LENGTH,
+        unpacker=BW_UNPACK,
+        service_uuid=None,
+        characteristic_uuid=None,
+        notify_uuid=None,
+        use_local_name_for_device=False,
+        parse_adv=True,
+        supports_polling=False,
+    ),
+    Model.INT_33_BW: ModelInfo(
+        name="INT-33-BW",
+        model_type=ModelType.SENSOR,
+        local_name="int-33-bw",
+        message_length=BW_MESSAGE_LENGTH,
+        unpacker=BW_UNPACK,
+        service_uuid=None,
+        characteristic_uuid=None,
+        notify_uuid=None,
+        use_local_name_for_device=False,
+        parse_adv=True,
+        supports_polling=False,
+    ),
 }
 
 INKBIRD_NAMES = {
@@ -495,6 +552,7 @@ SENSOR_MODELS = {
     *EIGHTEEN_BYTE_SENSOR_MODELS,
     *SEVENTEEN_BYTE_SENSOR_MODELS,
 }
+BW_PROBE_MODELS = set(BW_PROBES)
 BBQ_LENGTH_TO_TYPE = {
     model_info.message_length: model_type
     for model_type, model_info in MODEL_INFO.items()
@@ -1518,6 +1576,55 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                     SensorLibrary.BATTERY__PERCENTAGE, battery, key=key, name=name
                 )
 
+    def _update_bw_probe(self, data: bytes, _msg_length: int) -> None:
+        """Update the sensor values from an INT-BW probe advertisement."""
+        if TYPE_CHECKING:
+            assert self._device_type is not None
+        probes = BW_PROBES[self._device_type]
+        if len(data) != BW_MESSAGE_LENGTH or not 1 <= data[BW_PROBE_INDEX] <= len(
+            probes
+        ):
+            return
+        num = data[BW_PROBE_INDEX]
+        probe = probes[num - 1]
+        bat = data[BW_BATTERY_INDEX]
+        if not self._is_battery_plausible(bat):
+            return
+        _core, *sensors, ambient = BW_UNPACK(data[11:23])
+        readings = [
+            (
+                raw,
+                100,
+                f"temperature_probe_{num}_sensor_{idx + 1}",
+                f"Probe {num} Sensor {idx + 1} Temperature",
+            )
+            for idx, raw in enumerate(sensors[: probe.sensors])
+        ]
+        if probe.ambient:
+            readings.append(
+                (
+                    ambient,
+                    10,
+                    f"temperature_probe_{num}_ambient",
+                    f"Probe {num} Ambient Temperature",
+                )
+            )
+        for raw, scale, key, name in readings:
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS,
+                None
+                if abs(raw) in BW_INVALID_TEMPS
+                else round((raw / scale - 32) * 5 / 9, 1),
+                key=key,
+                name=name,
+            )
+        self.update_predefined_sensor(
+            SensorLibrary.BATTERY__PERCENTAGE,
+            bat,
+            key=f"probe_{num}_battery",
+            name=f"Probe {num} Battery",
+        )
+
     _device_type_dispatch: ClassVar[
         dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
     ]
@@ -1539,6 +1646,10 @@ INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
     **dict.fromkeys(
         SEVENTEEN_BYTE_SENSOR_MODELS,
         INKBIRDBluetoothDeviceData._update_seventeen_byte_model,  # noqa: SLF001
+    ),
+    **dict.fromkeys(
+        BW_PROBE_MODELS,
+        INKBIRDBluetoothDeviceData._update_bw_probe,  # noqa: SLF001
     ),
 }
 
