@@ -5048,3 +5048,14 @@ def test_int_31_bw_invalid_temperatures_are_none() -> None:
     assert values["temperature_probe_1_sensor_3"] is None
     assert values["temperature_probe_1_sensor_4"] == 31.3
     assert values["temperature_probe_1_ambient"] is None
+
+
+def test_bw_length_guard_uses_decoded_entry() -> None:
+    """A short changed entry is dropped even when the full data length matches."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_31_BW)
+    full = (40041).to_bytes(2, "little") + bytes.fromhex(
+        "1a69d0eff038c1a401662266220823622384234c03643858"
+    )
+    short = full[:23]
+    parser._update_bw_probe(short, 26)  # noqa: SLF001
+    assert not parser._sensor_values  # noqa: SLF001

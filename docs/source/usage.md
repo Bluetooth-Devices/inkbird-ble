@@ -159,34 +159,3 @@ service_info = BluetoothServiceInfoBleak(
 
 `device` and `advertisement_data` are the `BLEDevice` and `AdvertisementData`
 objects yielded by `bleak.BleakScanner`.
-
-## INT-31-BW / INT-33-BW settings
-
-The INT-31-BW and INT-33-BW bases can be read and configured over a short
-authenticated connection with `INTBWClient`. It connects, authenticates, and
-disconnects when the `async with` block ends, so the phone app can reach the
-base again between calls. The model is taken from the device name.
-
-```python
-from inkbird_ble import INTBWClient, Units
-from inkbird_ble.intbw import AlarmRepeat, CookTarget
-
-async with INTBWClient(ble_device) as client:
-    settings = await client.async_read_settings()  # settings.probes[0] ...
-    state = await client.async_read_state()
-    battery = await client.async_read_battery()  # base and per-probe %
-    if state.alarm:
-        await client.async_silence_alarms()
-    await client.async_set_temperature_unit(Units.TEMP_FAHRENHEIT)
-    await client.async_set_volume(2)  # 0 mutes
-    await client.async_set_alarm_repeat(AlarmRepeat(times=3, interval=5))
-    await client.async_set_cook(1, CookTarget(high=63.0), pre_alarm=5.0)
-```
-
-Probes are numbered from 1. The INT-31-BW has one probe; the INT-33-BW has
-three, and probe 3 has three sensors and no ambient sensor. Temperatures and
-calibration offsets are in Celsius. The client also covers brightness,
-backlight timeout, auto-sleep, Wi-Fi, base and probe names, calibration,
-timers, time sync, device info and (INT-31-BW) signal optimization. Pass
-`ble_device_callback` to supply a fresh `BLEDevice` between connection
-attempts.

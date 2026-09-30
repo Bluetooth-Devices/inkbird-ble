@@ -26,7 +26,9 @@ must supply it (notify-only devices).
 | `Generic 18 byte model` | Unknown hygrometer      | advertisement      | 18-byte payload + service UUID     | temperature, humidity, battery                                                   |
 | `IDT-34c-B`             | 6-probe BBQ thermometer | GATT notify        | local name `idt-34c-b`             | temperature × 6 probes, battery                                                  |
 | `INT-31-BW`             | Wireless meat probe     | advertisement      | local name `int-31-bw`             | temperature × 4 probe sensors, ambient temperature, probe battery                |
-| `INT-33-BW`             | 3-probe wireless probe  | advertisement      | local name `int-33-bw`             | per probe: temperature × 4 sensors (3 on probe 3), ambient (probes 1-2), battery |
+| `INT-33-BW`[^int-33-bw] | 3-probe wireless probe  | advertisement      | local name `int-33-bw`             | per probe: temperature × 4 sensors (3 on probe 3), ambient (probes 1-2), battery |
+
+[^int-33-bw]: Unverified on hardware.
 
 ## Transport guide
 

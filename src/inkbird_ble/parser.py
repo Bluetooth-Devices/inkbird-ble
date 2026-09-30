@@ -1576,12 +1576,12 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                     SensorLibrary.BATTERY__PERCENTAGE, battery, key=key, name=name
                 )
 
-    def _update_bw_probe(self, data: bytes, msg_length: int) -> None:
+    def _update_bw_probe(self, data: bytes, _msg_length: int) -> None:
         """Update the sensor values from an INT-BW probe advertisement."""
         if TYPE_CHECKING:
             assert self._device_type is not None
         probes = BW_PROBES[self._device_type]
-        if msg_length != BW_MESSAGE_LENGTH or not 1 <= data[BW_PROBE_INDEX] <= len(
+        if len(data) != BW_MESSAGE_LENGTH or not 1 <= data[BW_PROBE_INDEX] <= len(
             probes
         ):
             return

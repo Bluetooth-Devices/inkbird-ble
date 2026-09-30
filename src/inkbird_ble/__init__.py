@@ -12,7 +12,6 @@ from sensor_state_data import (
     Units,
 )
 
-from .intbw import INTBWClient
 from .parser import INKBIRDBluetoothDeviceData, Model
 
 __version__ = "1.7.1"
@@ -21,7 +20,6 @@ __all__ = [
     "DeviceClass",
     "DeviceKey",
     "INKBIRDBluetoothDeviceData",
-    "INTBWClient",
     "Model",
     "SensorDescription",
     "SensorDeviceInfo",
