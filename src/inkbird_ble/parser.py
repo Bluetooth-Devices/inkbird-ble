@@ -55,6 +55,7 @@ class Model(StrEnum):
     INT_11P_B = "INT-11P-B"
     INT_11I_B = "INT-11I-B"
     IDT_34C_B = "IDT-34c-B"
+    INT_12_BW = "INT-12-BW"
 
 
 class ModelType(Enum):
@@ -224,6 +225,36 @@ IDT_34C_B_BATTERY_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
 IDT_34C_B_NO_PROBE = 0x7FFE
 IDT_34C_B_PROBE_COUNT = 6
 IDT_34C_B_DATA_LENGTH = 13  # 6 probes (12 bytes) + 1 trailing status byte
+
+# INT-12-BW 2-probe BBQ thermometer (Wi-Fi + BLE base, MAC prefix A4:C1:38).
+# The base broadcasts both probes in its manufacturer data, so it is read
+# passively with no connection or authentication. Layout, counted from the
+# start of ``data`` (the 2-byte manufacturer id comes first):
+#   [2]      header (0x3A)
+#   [3]      0x69
+#   [4:10]   base MAC address, reversed
+#   [10:12]  probe 1 tip temperature   (signed LE int16, Celsius x 10)
+#   [12:14]  probe 1 ambient temperature (signed LE int16, Celsius x 10)
+#   [14]     probe 1 unknown
+#   [15]     probe 1 battery: low 7 bits = percentage, bit 7 = docked/charging
+#   [16:18]  probe 2 tip temperature   (probe 2 has no ambient sensor)
+#   [18]     probe 2 unknown
+#   [19]     probe 2 battery (same encoding as probe 1)
+#   [20]     unknown
+#   [21]     base battery percentage
+# 0x7FFE / 0x7FFF / 0x8000 mark a docked, disconnected or out-of-range probe.
+# Verified against the base's display on real hardware; protocol notes at
+# https://github.com/paul43210/inkbird-bw-ble
+INT_12_BW_MESSAGE_LENGTH = 22
+INT_12_BW_TEMP_UNPACK = struct.Struct("<hh").unpack
+INT_12_BW_PROBE_2_TEMP_UNPACK = struct.Struct("<h").unpack
+INT_12_BW_PROBE_1_TEMPS = slice(10, 14)
+INT_12_BW_PROBE_1_BATTERY_INDEX = 15
+INT_12_BW_PROBE_2_TEMP = slice(16, 18)
+INT_12_BW_PROBE_2_BATTERY_INDEX = 19
+INT_12_BW_BASE_BATTERY_INDEX = 21
+INT_12_BW_BATTERY_MASK = 0x7F
+INT_12_BW_INVALID_TEMPS = frozenset((0x7FFE, 0x7FFF, 0x8000))
 
 MODEL_INFO = {
     Model.IBBQ_1: ModelInfo(
@@ -453,6 +484,21 @@ MODEL_INFO = {
         use_local_name_for_device=False,
         parse_adv=False,
     ),
+    Model.INT_12_BW: ModelInfo(
+        name="INT-12-BW",
+        model_type=ModelType.SENSOR,
+        local_name="int-12-bw",
+        message_length=INT_12_BW_MESSAGE_LENGTH,
+        unpacker=INT_12_BW_TEMP_UNPACK,
+        service_uuid=None,
+        characteristic_uuid=None,
+        notify_uuid=None,
+        use_local_name_for_device=False,
+        parse_adv=True,
+        # Every reading is in the broadcast; the base accepts a single BLE
+        # connection, so polling would only lock out the vendor app.
+        supports_polling=False,
+    ),
 }
 
 INKBIRD_NAMES = {
@@ -509,6 +555,9 @@ NOTIFY_MODELS = {
 # data characteristic (no usable advertisement payload). They are not in the
 # length-based SENSOR_MODELS sets, but they must still be polled.
 GATT_POLL_MODELS = {Model.INT_11P_B, Model.INT_11I_B}
+# Multi-probe thermometers whose base broadcasts every probe in a fixed
+# manufacturer-data layout that is not keyed by the 9/17/18-byte sensor sets.
+ADV_PROBE_MODELS = {Model.INT_12_BW}
 
 # Notify-only models that advertise nothing but a local name (no manufacturer
 # data), so they must be matched by name before the manufacturer-data guard in
@@ -1518,6 +1567,46 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
                     SensorLibrary.BATTERY__PERCENTAGE, battery, key=key, name=name
                 )
 
+    def _update_int_12_bw(self, data: bytes, _msg_length: int) -> None:
+        """Update the sensor values from an INT-12-BW base advertisement."""
+        # Guard on the bytes actually indexed: ``data`` is the changed
+        # manufacturer entry, which can differ from the full-data length.
+        if len(data) != INT_12_BW_MESSAGE_LENGTH:
+            return
+        batteries = (
+            (
+                data[INT_12_BW_PROBE_1_BATTERY_INDEX] & INT_12_BW_BATTERY_MASK,
+                "probe_1_battery",
+                "Probe 1 Battery",
+            ),
+            (
+                data[INT_12_BW_PROBE_2_BATTERY_INDEX] & INT_12_BW_BATTERY_MASK,
+                "probe_2_battery",
+                "Probe 2 Battery",
+            ),
+            (data[INT_12_BW_BASE_BATTERY_INDEX], "battery", "Battery"),
+        )
+        if not all(self._is_battery_plausible(bat) for bat, _, _ in batteries):
+            # A garbage battery byte marks a corrupt packet; drop it whole.
+            return
+        tip_1, ambient_1 = INT_12_BW_TEMP_UNPACK(data[INT_12_BW_PROBE_1_TEMPS])
+        (tip_2,) = INT_12_BW_PROBE_2_TEMP_UNPACK(data[INT_12_BW_PROBE_2_TEMP])
+        for raw, key, name in (
+            (tip_1, "temperature_probe_1", "Probe 1 Temperature"),
+            (ambient_1, "temperature_probe_1_ambient", "Probe 1 Ambient Temperature"),
+            (tip_2, "temperature_probe_2", "Probe 2 Temperature"),
+        ):
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS,
+                None if abs(raw) in INT_12_BW_INVALID_TEMPS else raw / 10,
+                key=key,
+                name=name,
+            )
+        for bat, key, name in batteries:
+            self.update_predefined_sensor(
+                SensorLibrary.BATTERY__PERCENTAGE, bat, key=key, name=name
+            )
+
     _device_type_dispatch: ClassVar[
         dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
     ]
@@ -1540,6 +1629,7 @@ INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
         SEVENTEEN_BYTE_SENSOR_MODELS,
         INKBIRDBluetoothDeviceData._update_seventeen_byte_model,  # noqa: SLF001
     ),
+    Model.INT_12_BW: INKBIRDBluetoothDeviceData._update_int_12_bw,  # noqa: SLF001
 }
 
 INKBIRDBluetoothDeviceData._notify_dispatch = {  # noqa: SLF001

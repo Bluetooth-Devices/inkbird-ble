@@ -26,6 +26,7 @@ import inkbird_ble
 from inkbird_ble import INKBIRDBluetoothDeviceData as PublicData
 from inkbird_ble import Model as PublicModel
 from inkbird_ble.parser import (
+    ADV_PROBE_MODELS,
     BBQ_MODELS,
     GATT_POLL_MODELS,
     IHT_2PB_NOTIFY_UUID,
@@ -4887,7 +4888,7 @@ def test_model_info_covers_every_model() -> None:
 def test_every_model_has_a_dispatch_category() -> None:
     """Every ``Model`` enum member must belong to at least one dispatch set.
 
-    The parser reaches a model via one of four routes:
+    The parser reaches a model via one of five routes:
 
     * ``BBQ_MODELS`` — advertisement parsed by ``_update_bbq_model``;
     * ``SENSOR_MODELS`` — advertisement parsed by the length-keyed dispatch
@@ -4895,14 +4896,18 @@ def test_every_model_has_a_dispatch_category() -> None:
     * ``NOTIFY_MODELS`` — GATT notifications dispatched through
       ``_notify_callback`` / ``_notify_dispatch``;
     * ``GATT_POLL_MODELS`` — connectable-only probes with no usable
-      advertisement payload (e.g. ``INT-11P-B``).
+      advertisement payload (e.g. ``INT-11P-B``);
+    * ``ADV_PROBE_MODELS`` — multi-probe bases decoded from a fixed
+      advertisement layout (e.g. ``INT-12-BW``).
 
-    A model that falls outside all four sets has no decode path and would
+    A model that falls outside all five sets has no decode path and would
     appear to "exist" but never emit a reading. Asserting equality (rather
     than subset) also catches the inverse drift — a stale entry left behind
     after a ``Model`` removal.
     """
-    assert set(Model) == (BBQ_MODELS | SENSOR_MODELS | NOTIFY_MODELS | GATT_POLL_MODELS)
+    assert set(Model) == (
+        BBQ_MODELS | SENSOR_MODELS | NOTIFY_MODELS | GATT_POLL_MODELS | ADV_PROBE_MODELS
+    )
 
 
 def test_notify_init_writes_only_on_notify_models() -> None:
