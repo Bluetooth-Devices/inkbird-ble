@@ -25,6 +25,7 @@ must supply it (notify-only devices).
 | `iBBQ-6`                | BBQ probe (6 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 6                                                                |
 | `Generic 18 byte model` | Unknown hygrometer      | advertisement      | 18-byte payload + service UUID     | temperature, humidity, battery                                                 |
 | `IDT-34c-B`             | 6-probe BBQ thermometer | GATT notify        | local name `idt-34c-b`             | temperature × 6 probes, battery                                                |
+| `INT-12-BW`             | 2-probe BBQ thermometer | advertisement only | local name `int-12-bw`             | temperature × 2 probes, probe 1 ambient, probe batteries, base battery         |
 
 ## Transport guide
 
@@ -35,6 +36,9 @@ must supply it (notify-only devices).
 - **advertisement only** — the device cannot be polled or notified safely
   (`IBS-P02B` wedges its firmware until a battery reset if you open a GATT
   connection, see issue [#116]). All fields are already in the broadcast.
+  The `INT-12-BW` base broadcasts both probes, the probe 1 ambient sensor and
+  all three batteries, so it is read passively too; its base accepts a single
+  BLE connection, and polling would lock out the vendor app.
 - **GATT poll** — the device exposes a readable characteristic; call
   `async_poll(ble_device)` when `poll_needed()` returns true. `INT-11P-B`
   carries _no_ readings in its advertisement, so it must be polled.
