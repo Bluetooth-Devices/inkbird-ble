@@ -18,7 +18,7 @@ must supply it (notify-only devices).
 | `IAM-T2`                | Indoor air quality      | advertisement      | 17-byte payload + MAC prefix       | temperature, humidity, CO₂                                                     |
 | `IHT-2PB`               | 3-probe thermometer     | GATT notify        | local name `Ink@IHT-2PB#…`         | temperature × 3 probes                                                         |
 | `INT-11P-B`             | Connected BBQ probe     | GATT poll          | local name `int-11p-b`             | probe temperature, ambient temperature, probe battery, case battery            |
-| `INT-11I-B`             | Connected probe         | GATT poll          | local name `int-11i-b`             | temperature, station battery, probe battery                                    |
+| `INT-11I-B`             | Connected probe         | advertisement/GATT | local name `int-11i-b`             | temperature, station battery, probe battery                                    |
 | `iBBQ-1`                | BBQ probe (1 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 1                                                                |
 | `iBBQ-2`                | BBQ probe (2 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 2                                                                |
 | `iBBQ-4`                | BBQ probe (4 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 4                                                                |
@@ -38,6 +38,8 @@ must supply it (notify-only devices).
 - **GATT poll** — the device exposes a readable characteristic; call
   `async_poll(ble_device)` when `poll_needed()` returns true. `INT-11P-B`
   carries _no_ readings in its advertisement, so it must be polled.
+  `INT-11I-B` advertises whole-degree Celsius readings and uses polling as
+  a fallback when advertisements lack usable readings or become stale.
 - **GATT notify** — the device pushes readings over a notify characteristic;
   call `async_start(service_info, ble_device)` to subscribe. `IAM-T1` and
   `IHT-2PB` use this transport. `IHT-2PB` additionally requires two

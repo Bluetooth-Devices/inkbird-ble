@@ -22,6 +22,7 @@ from bleak.exc import BleakCharacteristicNotFoundError, BleakError
 from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
 from bluetooth_data_tools import (
     monotonic_time_coarse,
+    parse_advertisement_data_bytes,
     short_address,
 )
 from bluetooth_sensor_state_data import BluetoothData, SensorUpdate
@@ -184,15 +185,8 @@ INT_11P_B_PROBE_BATTERY_INDEX = 4
 INT_11P_B_CASE_BATTERY_INDEX = 5
 INT_11P_B_BATTERY_MASK = 0x7F
 
-# INT-11I-B GATT support. Like the INT-11P-B this connectable probe carries no
-# readings in its advertisement (only used for discovery); the values are read
-# from two characteristics on the ``ff00`` service. The byte layout is taken
-# directly from the working community ESPHome config posted on issue #238 (the
-# in-band reference that lets us ship a verified scale rather than a guess.
-# The ff01 temperature characteristic holds a little-endian uint16 of
-# Fahrenheit hundredths; converting to Celsius subtracts 32 then scales by
-# five-ninths. The standard 2a19 battery characteristic carries the base
-# station percentage in byte zero and the probe percentage in byte one.
+# INT-11I-B advertisements contain whole-degree Celsius and both batteries.
+# GATT uses Fahrenheit hundredths on ff01 and station/probe percentages on 2a19.
 INT_11I_B_SERVICE_UUID = UUID("0000ff00-0000-1000-8000-00805f9b34fb")
 INT_11I_B_TEMP_CHARACTERISTIC_UUID = UUID("0000ff01-0000-1000-8000-00805f9b34fb")
 INT_11I_B_BATTERY_CHARACTERISTIC_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
@@ -201,6 +195,11 @@ INT_11I_B_FULL_READ_LEN = 4
 INT_11I_B_STATION_BATTERY_INDEX = 2
 INT_11I_B_PROBE_BATTERY_INDEX = 3
 INT_11I_B_PROBE_NOT_CONNECTED = 0x7FFE
+INT_11I_B_ADV_TEMPERATURE_OFFSET = 10
+INT_11I_B_ADV_PROBE_BATTERY_INDEX = 13
+INT_11I_B_ADV_STATION_BATTERY_INDEX = 15
+INT_11I_B_MIN_TEMPERATURE_CELSIUS = -10
+INT_11I_B_MAX_TEMPERATURE_CELSIUS = 100
 
 # IDT-34c-B notify support. This 6-probe BBQ thermometer (a Tuya-based device,
 # MAC prefix A4:C1:38) carries no readings in its advertisement — it only
@@ -424,17 +423,13 @@ MODEL_INFO = {
         name="INT-11I-B",
         model_type=ModelType.SENSOR,
         local_name="int-11i-b",
-        # No usable advertisement payload — temperature and battery are read
-        # from the ff01 / 2a19 characteristics. message_length=0 keeps it out
-        # of the adv length / passive dispatch sets; polling is enabled via
-        # GATT_POLL_MODELS.
-        message_length=0,
-        unpacker=INKBIRD_UNPACK,
+        message_length=EIGHTEEN_BYTE_MESSAGE_LENGTH,
+        unpacker=struct.Struct("<h").unpack,
         service_uuid=INT_11I_B_SERVICE_UUID,
         characteristic_uuid=INT_11I_B_TEMP_CHARACTERISTIC_UUID,
         notify_uuid=None,
         use_local_name_for_device=False,
-        parse_adv=False,
+        parse_adv=True,
     ),
     Model.IDT_34C_B: ModelInfo(
         name="IDT-34c-B",
@@ -483,6 +478,7 @@ EIGHTEEN_BYTE_SENSOR_MODELS = {
     for model_type, model_info in MODEL_INFO.items()
     if model_info.model_type is ModelType.SENSOR
     and model_info.message_length == EIGHTEEN_BYTE_MESSAGE_LENGTH
+    and model_type is not Model.INT_11I_B
 }
 SEVENTEEN_BYTE_SENSOR_MODELS = {
     model_type
@@ -495,6 +491,7 @@ SENSOR_MODELS = {
     *NINE_BYTE_SENSOR_MODELS,
     *EIGHTEEN_BYTE_SENSOR_MODELS,
     *SEVENTEEN_BYTE_SENSOR_MODELS,
+    Model.INT_11I_B,
 }
 BBQ_LENGTH_TO_TYPE = {
     model_info.message_length: model_type
@@ -509,7 +506,7 @@ NOTIFY_MODELS = {
 # Connectable probes whose readings are only available via a GATT read of a
 # data characteristic (no usable advertisement payload). They are not in the
 # length-based SENSOR_MODELS sets, but they must still be polled.
-GATT_POLL_MODELS = {Model.INT_11P_B, Model.INT_11I_B}
+GATT_POLL_MODELS = {Model.INT_11P_B}
 
 # Notify-only models that advertise nothing but a local name (no manufacturer
 # data), so they must be matched by name before the manufacturer-data guard in
@@ -657,6 +654,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self._device_type = try_parse_model(device_type)
         # Last time we got a full update from ADV data
         self._last_full_update = 0.0
+        self._int_11i_b_advertisement_updates = 0
         self._notify_task: asyncio.Task[None] | None = None
         self._running = True
         self._device_data = device_data.copy() if device_data else {}
@@ -1115,6 +1113,30 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         """
         if not self._supports_polling:
             poll_needed = False
+        elif self._device_type is Model.INT_11I_B:
+            readings = None
+            manufacturer_data = service_info.manufacturer_data
+            if service_info.raw:
+                _, _, _, manufacturer_data, _ = parse_advertisement_data_bytes(
+                    service_info.raw
+                )
+            if len(service_info.manufacturer_data) > 1:
+                manufacturer_data = {
+                    key: value
+                    for key, value in manufacturer_data.items()
+                    if key not in MANUFACTURER_DATA_ID_EXCLUDES
+                }
+            if manufacturer_data and (service_info.raw or len(manufacturer_data) == 1):
+                manufacturer_id = list(manufacturer_data)[-1]
+                data = (
+                    manufacturer_id.to_bytes(2, "little")
+                    + manufacturer_data[manufacturer_id]
+                )
+                readings = self._decode_int_11i_b_advertisement(data)
+            poll_needed = (last_poll is None or last_poll > MIN_POLL_INTERVAL) and (
+                readings is None
+                or monotonic_time_coarse() - service_info.time > MIN_POLL_INTERVAL
+            )
         elif self._device_type in GATT_POLL_MODELS:
             poll_needed = last_poll is None or last_poll > MIN_POLL_INTERVAL
         else:
@@ -1206,7 +1228,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
+        advertisement_updates = self._int_11i_b_advertisement_updates
         payload = await self._async_connect_and_read(ble_device)
+        if (
+            self._device_type is Model.INT_11I_B
+            and self._int_11i_b_advertisement_updates != advertisement_updates
+        ):
+            # A newer advertisement supersedes the readings from this connection.
+            return self._finish_update()
         if self._device_type in EIGHTEEN_BYTE_SENSOR_MODELS:
             if not self._poll_read_too_short(payload, EIGHTEEN_BYTE_POLL_MIN_READ_LEN):
                 self._update_eighteen_byte_model_from_raw(payload[5:9], payload[9])
@@ -1486,6 +1515,58 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             name="Case Battery",
         )
 
+    def _decode_int_11i_b_advertisement(
+        self,
+        data: bytes,
+    ) -> tuple[int | None, int, int] | None:
+        """Decode a complete INT-11I-B advertisement, including manufacturer ID."""
+        if len(data) != EIGHTEEN_BYTE_MESSAGE_LENGTH:
+            return None
+        (temperature,) = MODEL_INFO[Model.INT_11I_B].unpacker(
+            data[
+                INT_11I_B_ADV_TEMPERATURE_OFFSET : INT_11I_B_ADV_TEMPERATURE_OFFSET + 2
+            ]
+        )
+        if temperature != INT_11I_B_PROBE_NOT_CONNECTED and not (
+            INT_11I_B_MIN_TEMPERATURE_CELSIUS
+            <= temperature
+            <= INT_11I_B_MAX_TEMPERATURE_CELSIUS
+        ):
+            return None
+        station_battery = data[INT_11I_B_ADV_STATION_BATTERY_INDEX]
+        probe_battery = data[INT_11I_B_ADV_PROBE_BATTERY_INDEX]
+        if not self._is_battery_plausible(
+            station_battery
+        ) or not self._is_battery_plausible(probe_battery):
+            return None
+        return (
+            None if temperature == INT_11I_B_PROBE_NOT_CONNECTED else temperature,
+            station_battery,
+            probe_battery,
+        )
+
+    def _update_int_11i_b(self, data: bytes, _msg_length: int) -> None:
+        """Update INT-11I-B readings from an advertisement."""
+        if (readings := self._decode_int_11i_b_advertisement(data)) is None:
+            return
+        temperature, station_battery, probe_battery = readings
+        self._int_11i_b_advertisement_updates += 1
+        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temperature)
+        self._update_int_11i_b_batteries(station_battery, probe_battery)
+
+    def _update_int_11i_b_batteries(
+        self, station_battery: int, probe_battery: int
+    ) -> None:
+        """Update the named battery sensors shared by advertisements and GATT."""
+        for battery, key, name in (
+            (station_battery, "station_battery", "Station Battery"),
+            (probe_battery, "probe_battery", "Probe Battery"),
+        ):
+            if self._is_battery_plausible(battery):
+                self.update_predefined_sensor(
+                    SensorLibrary.BATTERY__PERCENTAGE, battery, key=key, name=name
+                )
+
     def _update_int_11i_b_from_raw(self, payload: bytes) -> None:
         """Update the sensor values for an INT-11I-B GATT read.
 
@@ -1513,15 +1594,10 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # Battery characteristic was absent or returned a short read; the
             # temperature above is still valid, so emit it without batteries.
             return
-        for index, key, name in (
-            (INT_11I_B_STATION_BATTERY_INDEX, "station_battery", "Station Battery"),
-            (INT_11I_B_PROBE_BATTERY_INDEX, "probe_battery", "Probe Battery"),
-        ):
-            battery = payload[index]
-            if self._is_battery_plausible(battery):
-                self.update_predefined_sensor(
-                    SensorLibrary.BATTERY__PERCENTAGE, battery, key=key, name=name
-                )
+        self._update_int_11i_b_batteries(
+            payload[INT_11I_B_STATION_BATTERY_INDEX],
+            payload[INT_11I_B_PROBE_BATTERY_INDEX],
+        )
 
     _device_type_dispatch: ClassVar[
         dict[Model, Callable[[INKBIRDBluetoothDeviceData, bytes, int], None]]
@@ -1529,6 +1605,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
 
 
 INKBIRDBluetoothDeviceData._device_type_dispatch = {  # noqa: SLF001
+    Model.INT_11I_B: INKBIRDBluetoothDeviceData._update_int_11i_b,  # noqa: SLF001
     **dict.fromkeys(
         BBQ_MODELS,
         INKBIRDBluetoothDeviceData._update_bbq_model,  # noqa: SLF001

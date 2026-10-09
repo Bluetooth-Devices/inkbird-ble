@@ -4257,38 +4257,76 @@ async def test_int_11p_b_poll_impossible_battery_dropped() -> None:
     assert "case_battery" not in keys
 
 
-def _int_11i_b_service_info() -> BluetoothServiceInfoBleak:
-    """A representative INT-11I-B advertisement (carries no readings)."""
+_INT_11I_B_WARMING = bytes.fromhex("896898613938c1a41d001e3b005b0000")
+_INT_11I_B_DOCKED = bytes.fromhex("896898613938c1a4fe7f213c025b0000")
+
+
+def _int_11i_b_service_info(
+    payload: bytes = bytes.fromhex("196a6588c938c1a42100236400640000"),
+    manufacturer_id: int = 17544,
+    name: str = "INT-11I-B",
+    raw: bytes | None = None,
+) -> BluetoothServiceInfoBleak:
+    """Build an INT-11I-B advertisement or discovery-only packet."""
     return make_bluetooth_service_info(
-        name="INT-11I-B",
-        manufacturer_data={17544: bytes.fromhex("196a6588c938c1a42100236400640000")},
+        name=name,
+        manufacturer_data={manufacturer_id: payload},
         service_uuids=["0000ff00-0000-1000-8000-00805f9b34fb"],
         address="A4:C1:38:C9:88:65",
         rssi=-55,
         service_data={},
         source="local",
+        raw=raw,
     )
 
 
-def test_int_11i_b_detected_from_advertisement() -> None:
-    """The INT-11I-B is identified by name and is a poll-only GATT model."""
+@pytest.mark.parametrize(
+    ("payload", "manufacturer_id", "temperature", "station_battery", "probe_battery"),
+    [
+        pytest.param(
+            bytes.fromhex("196a6588c938c1a42100236400640000"),
+            17544,
+            33,
+            100,
+            100,
+            id="another-device",
+        ),
+        pytest.param(_INT_11I_B_WARMING, 51409, 29, 91, 59, id="active"),
+        pytest.param(_INT_11I_B_DOCKED, 51409, None, 91, 60, id="docked"),
+    ],
+)
+def test_int_11i_b_detected_from_advertisement(
+    payload: bytes,
+    manufacturer_id: int,
+    temperature: int | None,
+    station_battery: int,
+    probe_battery: int,
+) -> None:
+    """Detect the probe and decode its captured advertisement readings."""
     parser = INKBIRDBluetoothDeviceData()
-    service_info = _int_11i_b_service_info()
-    parser.update(service_info)
-    assert parser.device_type == Model.INT_11I_B
+    service_info = _int_11i_b_service_info(payload, manufacturer_id)
+    update = parser.update(service_info)
+    assert parser.device_type is Model.INT_11I_B
     assert parser.supported(service_info) is True
     assert parser.name == "INT-11I-B 8865"
-    # It reads from characteristics rather than streaming notifications.
     assert parser.uses_notify is False
-    # No readings in the advertisement, so a poll is due on first sighting.
-    assert parser.poll_needed(service_info, None) is True
+    assert parser.poll_needed(service_info, None) is False
+    values = {
+        key.key: value.native_value for key, value in update.entity_values.items()
+    }
+    assert values == {
+        "signal_strength": -55,
+        "temperature": temperature,
+        "station_battery": station_battery,
+        "probe_battery": probe_battery,
+    }
 
 
 @pytest.mark.asyncio
 async def test_int_11i_b_poll() -> None:
     """Decode captured readings, clearing temperature on shutdown and recovering."""
     parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
-    parser.update(_int_11i_b_service_info())
+    parser.update(_int_11i_b_service_info(b""))
     mock_client = MagicMock(
         read_gatt_char=AsyncMock(
             side_effect=[
@@ -4326,7 +4364,7 @@ async def test_int_11i_b_poll() -> None:
 async def test_int_11i_b_poll_temperature_only_without_battery_char() -> None:
     """A missing 2a19 characteristic still yields the ff01 temperature."""
     parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
-    parser.update(_int_11i_b_service_info())
+    parser.update(_int_11i_b_service_info(b""))
     mock_service = MagicMock()
     # Temperature characteristic present, battery characteristic absent.
     mock_service.get_characteristic.side_effect = lambda uuid: (
@@ -4349,7 +4387,7 @@ async def test_int_11i_b_poll_temperature_only_without_battery_char() -> None:
 async def test_int_11i_b_poll_short_temp_read_ignored() -> None:
     """A truncated ff01 read emits no temperature or battery values."""
     parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
-    parser.update(_int_11i_b_service_info())
+    parser.update(_int_11i_b_service_info(b""))
     read_gatt_char_mock = AsyncMock(side_effect=[b"\x60", b"\x50\x4b"])
     mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
     with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
@@ -4371,7 +4409,7 @@ async def test_int_11i_b_poll_impossible_battery_skipped() -> None:
     INT-11P-B, where one garbage byte condemns the whole packet).
     """
     parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
-    parser.update(_int_11i_b_service_info())
+    parser.update(_int_11i_b_service_info(b""))
     # station battery 0xFF -> 255% impossible; probe 75% valid.
     read_gatt_char_mock = AsyncMock(side_effect=[b"\x60\x1d", b"\xff\x4b"])
     mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
@@ -4396,7 +4434,7 @@ async def test_int_11i_b_poll_impossible_probe_battery_skipped() -> None:
     (the Codecov partial flagged on the probe-battery-implausible path).
     """
     parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
-    parser.update(_int_11i_b_service_info())
+    parser.update(_int_11i_b_service_info(b""))
     # station 80% valid; probe battery 0xFF -> 255% impossible.
     read_gatt_char_mock = AsyncMock(side_effect=[b"\x60\x1d", b"\x50\xff"])
     mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
@@ -4410,6 +4448,150 @@ async def test_int_11i_b_poll_impossible_probe_battery_skipped() -> None:
     assert values["temperature"] == 24.0
     assert values["station_battery"] == 80
     assert "probe_battery" not in values
+
+
+def test_int_11i_b_advertisement_shutdown_and_recovery() -> None:
+    """Docking clears temperature, and the generic name preserves model identity."""
+    parser = INKBIRDBluetoothDeviceData()
+    active = parser.update(_int_11i_b_service_info(_INT_11I_B_WARMING))
+    assert active.entity_values[DeviceKey("temperature", None)].native_value == 29
+    docked = parser.update(_int_11i_b_service_info(_INT_11I_B_DOCKED))
+    assert docked.entity_values[DeviceKey("temperature", None)].native_value is None
+    assert docked.entity_values[DeviceKey("probe_battery", None)].native_value == 60
+    recovered = parser.update(
+        _int_11i_b_service_info(_INT_11I_B_WARMING, name="INKBIRD")
+    )
+    assert recovered.entity_values[DeviceKey("temperature", None)].native_value == 29
+    assert parser.name == "INT-11I-B 8865"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(_INT_11I_B_WARMING[:-1], id="truncated"),
+        pytest.param(_INT_11I_B_WARMING + b"\x00", id="oversized"),
+        pytest.param(
+            _INT_11I_B_WARMING[:8] + b"\x65\x00" + _INT_11I_B_WARMING[10:],
+            id="temperature",
+        ),
+        pytest.param(
+            _INT_11I_B_WARMING[:11] + b"\xff" + _INT_11I_B_WARMING[12:],
+            id="probe-battery",
+        ),
+        pytest.param(
+            _INT_11I_B_WARMING[:13] + b"\xff" + _INT_11I_B_WARMING[14:],
+            id="station-battery",
+        ),
+    ],
+)
+def test_int_11i_b_invalid_advertisement_ignored(payload: bytes) -> None:
+    """Invalid frames publish no readings and leave GATT fallback available."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
+    service_info = _int_11i_b_service_info(payload)
+    update = parser.update(service_info)
+    assert {key.key for key in update.entity_values} == {"signal_strength"}
+    assert parser.poll_needed(service_info, None) is True
+
+
+@pytest.mark.parametrize(
+    ("manufacturer_data", "raw", "age", "needed"),
+    [
+        pytest.param({51409: _INT_11I_B_WARMING}, None, 0.0, False, id="fresh"),
+        pytest.param({51409: _INT_11I_B_DOCKED}, None, 0.0, False, id="inactive"),
+        pytest.param(
+            {51409: _INT_11I_B_WARMING}, None, 330.0, False, id="freshness-boundary"
+        ),
+        pytest.param({51409: _INT_11I_B_WARMING}, None, 331.0, True, id="stale"),
+        pytest.param({}, None, 0.0, True, id="discovery-only"),
+        pytest.param(
+            {51409: b"\x00"},
+            b"\x13\xff\xd1\xc8" + _INT_11I_B_WARMING,
+            0.0,
+            False,
+            id="raw-valid",
+        ),
+        pytest.param(
+            {51409: _INT_11I_B_WARMING},
+            b"\x04\xff\xd1\xc8\x00",
+            0.0,
+            True,
+            id="raw-invalid",
+        ),
+        pytest.param(
+            {51409: _INT_11I_B_WARMING, 51410: _INT_11I_B_DOCKED},
+            None,
+            0.0,
+            True,
+            id="ambiguous-merged",
+        ),
+        pytest.param(
+            {51409: _INT_11I_B_WARMING, 51410: _INT_11I_B_DOCKED},
+            b"",
+            0.0,
+            True,
+            id="empty-raw",
+        ),
+        pytest.param(
+            {51409: _INT_11I_B_WARMING, 2: b"\x10"},
+            None,
+            0.0,
+            False,
+            id="apple-excluded",
+        ),
+    ],
+)
+def test_int_11i_b_advertisement_polling_policy(
+    manufacturer_data: dict[int, bytes],
+    raw: bytes | None,
+    age: float,
+    needed: bool,
+) -> None:
+    """Use the current packet's readings and freshness with bounded GATT polls."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
+    with patch(f"{__name__}.monotonic_time_coarse", return_value=1000.0 - age):
+        service_info = _int_11i_b_service_info(raw=raw)
+    service_info.manufacturer_data.clear()
+    service_info.manufacturer_data.update(manufacturer_data)
+    with patch("inkbird_ble.parser.monotonic_time_coarse", return_value=1000.0):
+        assert parser.poll_needed(service_info, None) is needed
+        assert parser.poll_needed(service_info, 330.0) is False
+        assert parser.poll_needed(service_info, 331.0) is needed
+
+
+def test_int_11i_b_identical_fresh_advertisement_avoids_poll() -> None:
+    """Deduplicated readings still use the current packet's freshness."""
+    parser = INKBIRDBluetoothDeviceData()
+    with patch(f"{__name__}.monotonic_time_coarse", return_value=500.0):
+        parser.update(_int_11i_b_service_info(_INT_11I_B_WARMING))
+    with patch(f"{__name__}.monotonic_time_coarse", return_value=1000.0):
+        service_info = _int_11i_b_service_info(_INT_11I_B_WARMING)
+        parser.update(service_info)
+    with patch("inkbird_ble.parser.monotonic_time_coarse", return_value=1000.0):
+        assert parser.poll_needed(service_info, None) is False
+
+
+@pytest.mark.asyncio
+async def test_int_11i_b_advertisement_during_poll_takes_precedence() -> None:
+    """A docking advertisement wins over an older GATT response in flight."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
+    parser.update(_int_11i_b_service_info(b""))
+    responses = iter([b"\xff\x1e\x1d", b"\x59\x64\x00\x00\x00"])
+
+    async def read_characteristic(_characteristic: object) -> bytes:
+        parser.update(_int_11i_b_service_info(_INT_11I_B_DOCKED))
+        return next(responses)
+
+    mock_client = MagicMock(
+        read_gatt_char=AsyncMock(side_effect=read_characteristic),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="A4:C1:38:C9:88:65", name="INT-11I-B", details={})
+        )
+    assert update.entity_values[DeviceKey("temperature", None)].native_value is None
+    assert update.entity_values[DeviceKey("station_battery", None)].native_value == 91
+    assert update.entity_values[DeviceKey("probe_battery", None)].native_value == 60
 
 
 @pytest.mark.asyncio
@@ -4525,6 +4707,9 @@ async def test_async_poll_without_gatt_decoder_emits_no_readings() -> None:
 # A valid 18-byte payload shared by the name-detected 18-byte models and the
 # manufacturer-id-detected GENERIC_18 (humidity at mfr bytes [6:8] = 0x0190 ->
 # 40.0%; trailing zeros keep GENERIC_18 detection happy).
+# INT-11I-B has a dedicated decoder and separate corrupt-input tests.
+_GENERIC_ADV_SENSOR_MODELS = SENSOR_MODELS - {Model.INT_11I_B}
+
 _VALID_18_BYTE = b"\x08\x12\x00^\x00\x00\x90\x01d\x00d\x08\x00\x00\x00\x00"
 
 # model -> (advertised name, manufacturer id, valid payload, humidity byte slice)
@@ -4597,12 +4782,8 @@ def test_adv_humidity_boundary_invariant(model: Model) -> None:
 
 
 def test_adv_humidity_boundary_covers_every_sensor_model() -> None:
-    """Every advertisement sensor model must declare a corrupt-input case.
-
-    Forces a future device parser added to ``SENSOR_MODELS`` to also add a
-    boundary entry, so the unsigned-humidity bug family cannot silently regrow.
-    """
-    assert set(_ADV_HUMIDITY_BOUNDARY_CASES) == SENSOR_MODELS
+    """Cover every generic sensor decoder with a corrupt-humidity case."""
+    assert set(_ADV_HUMIDITY_BOUNDARY_CASES) == _GENERIC_ADV_SENSOR_MODELS
 
 
 # ---------------------------------------------------------------------------
@@ -4694,13 +4875,8 @@ def test_adv_temperature_boundary_invariant(model: Model) -> None:
 
 
 def test_adv_temperature_boundary_covers_every_sensor_model() -> None:
-    """Every advertisement sensor model must declare a corrupt-temperature case.
-
-    Mirrors the humidity meta-test: forces a future device parser added to
-    ``SENSOR_MODELS`` to also declare its temperature boundary, so the
-    unsigned-temperature bug family (#155/#188/#193) cannot silently regrow.
-    """
-    assert set(_ADV_TEMPERATURE_BOUNDARY_CASES) == SENSOR_MODELS
+    """Cover every generic sensor decoder with a corrupt-temperature case."""
+    assert set(_ADV_TEMPERATURE_BOUNDARY_CASES) == _GENERIC_ADV_SENSOR_MODELS
 
 
 # ---------------------------------------------------------------------------
@@ -4715,10 +4891,9 @@ def test_adv_temperature_boundary_covers_every_sensor_model() -> None:
 
 _BATTERY_KEY = DeviceKey(key="battery", device_id=None)
 
-# Models in ``SENSOR_MODELS`` whose adv parser emits a battery reading. IAM-T2
-# intentionally does not publish battery (its encoding is unconfirmed), so it
-# is excluded from the corrupt-battery boundary table.
-_BATTERY_REPORTING_SENSOR_MODELS = SENSOR_MODELS - {Model.IAM_T2}
+# Generic sensor decoders with a single battery; IAM-T2 has no battery.
+# INT-11I-B validates its two named batteries in dedicated tests.
+_BATTERY_REPORTING_SENSOR_MODELS = _GENERIC_ADV_SENSOR_MODELS - {Model.IAM_T2}
 
 # model -> (advertised name, manufacturer id, valid payload, battery byte index)
 _ADV_BATTERY_BOUNDARY_CASES: dict[Model, tuple[str, int, bytes, int]] = {
