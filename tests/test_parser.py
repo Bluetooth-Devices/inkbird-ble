@@ -4286,22 +4286,40 @@ def test_int_11i_b_detected_from_advertisement() -> None:
 
 @pytest.mark.asyncio
 async def test_int_11i_b_poll() -> None:
-    """Polling reads ff01 + 2a19 and decodes temperature and both batteries."""
+    """Decode captured readings, clearing temperature on shutdown and recovering."""
     parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
     parser.update(_int_11i_b_service_info())
-    # ff01 -> 0x1d60 = 7520 -> 75.20F -> 24.0C; 2a19 -> station 80%, probe 75%.
-    read_gatt_char_mock = AsyncMock(side_effect=[b"\x60\x1d", b"\x50\x4b"])
-    mock_client = MagicMock(read_gatt_char=read_gatt_char_mock, disconnect=AsyncMock())
+    mock_client = MagicMock(
+        read_gatt_char=AsyncMock(
+            side_effect=[
+                b"\x2d\x1c\x16",
+                b"\x64\x64\x00\x00\x00",
+                b"\xfe\x7f\x16",
+                b"\x59\x64\x00\x00\x00",
+                b"\xff\x1e\x1d",
+                b"\x59\x64\x00\x00\x00",
+            ]
+        ),
+        disconnect=AsyncMock(),
+    )
+    ble_device = BLEDevice(address="A4:C1:38:C9:88:65", name="INT-11I-B", details={})
     with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
-        update = await parser.async_poll(
-            BLEDevice(address="A4:C1:38:C9:88:65", name="INT-11I-B", details={})
-        )
-    values = {
-        key.key: value.native_value for key, value in update.entity_values.items()
-    }
-    assert values["temperature"] == 24.0
-    assert values["station_battery"] == 80
-    assert values["probe_battery"] == 75
+        for temperature, station_battery, probe_battery in (
+            (22.3, 100, 100),
+            (None, 89, 100),
+            (26.3, 89, 100),
+        ):
+            update = await parser.async_poll(ble_device)
+            values = {
+                key.key: value.native_value
+                for key, value in update.entity_values.items()
+            }
+            assert values == {
+                "signal_strength": -55,
+                "temperature": temperature,
+                "station_battery": station_battery,
+                "probe_battery": probe_battery,
+            }
 
 
 @pytest.mark.asyncio

@@ -200,6 +200,7 @@ INT_11I_B_TEMP_READ_LEN = 2
 INT_11I_B_FULL_READ_LEN = 4
 INT_11I_B_STATION_BATTERY_INDEX = 2
 INT_11I_B_PROBE_BATTERY_INDEX = 3
+INT_11I_B_PROBE_NOT_CONNECTED = 0x7FFE
 
 # IDT-34c-B notify support. This 6-probe BBQ thermometer (a Tuya-based device,
 # MAC prefix A4:C1:38) carries no readings in its advertisement — it only
@@ -1502,7 +1503,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         if self._poll_read_too_short(payload, INT_11I_B_TEMP_READ_LEN):
             return
         (raw_fahrenheit,) = struct.unpack("<H", payload[:INT_11I_B_TEMP_READ_LEN])
-        celsius = round(((raw_fahrenheit / 100.0) - 32.0) * 5.0 / 9.0, 1)
+        celsius = (
+            None
+            if raw_fahrenheit == INT_11I_B_PROBE_NOT_CONNECTED
+            else round(((raw_fahrenheit / 100.0) - 32.0) * 5.0 / 9.0, 1)
+        )
         self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, celsius)
         if len(payload) < INT_11I_B_FULL_READ_LEN:
             # Battery characteristic was absent or returned a short read; the
