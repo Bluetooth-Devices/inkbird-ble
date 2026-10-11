@@ -48,6 +48,33 @@ must supply it (notify-only devices).
   by local name; its `ff01` characteristic streams all six probe temperatures
   in a single notification.
 
+### INT-11I-B readings
+
+Advertisements provide whole-degree Celsius temperatures; GATT fallback reports
+temperature rounded to one decimal place. Both transports update the same
+temperature, station battery, and probe battery sensors. The `0x7FFE` inactive
+probe marker clears temperature to `None` without clearing the battery readings.
+A usable advertisement received during a GATT poll takes precedence over that
+poll's response.
+
+The advertisement layout is based on captures while warming and docking a probe,
+with the unequal battery levels checked against the INKBIRD app. Offsets below
+include the two-byte manufacturer ID, which must be prepended to the 16-byte
+manufacturer payload returned by Bleak:
+
+| Byte offset | Field             | Encoding                                       |
+| ----------- | ----------------- | ---------------------------------------------- |
+| 10–11       | Probe temperature | Little-endian signed integer, whole degrees °C |
+| 13          | Probe battery     | Percentage, 0–100                              |
+| 15          | Station battery   | Percentage, 0–100                              |
+
+The decoder accepts the probe's specified [−10 to 100°C measurement range][int-11i-b-specs]
+and the inactive marker. Other bytes remain uninterpreted. Missing, malformed,
+ambiguous, or stale advertisement readings leave GATT fallback available, with
+the existing 330-second minimum interval between successful polls. The GATT
+format is different: `ff01` uses Fahrenheit hundredths and `2a19` lists station
+battery before probe battery.
+
 ## Not supported
 
 A few INKBIRD product lines that come up in the issue tracker are out of
@@ -62,3 +89,4 @@ open an issue with a BLE advertisement capture (e.g. from `bluetoothctl` or
 `nrfConnect`) so the model can be reverse-engineered.
 
 [#116]: https://github.com/Bluetooth-Devices/inkbird-ble/issues/116
+[int-11i-b-specs]: https://www.inkbird.com/products/bluetooth-mini-wireless-meat-thermometer-int-11i-b

@@ -4259,6 +4259,33 @@ async def test_int_11p_b_poll_impossible_battery_dropped() -> None:
 
 _INT_11I_B_WARMING = bytes.fromhex("896898613938c1a41d001e3b005b0000")
 _INT_11I_B_DOCKED = bytes.fromhex("896898613938c1a4fe7f213c025b0000")
+_INT_11I_B_UNUSABLE_ADVERTISEMENTS = [
+    pytest.param(
+        {51409: _INT_11I_B_WARMING, 2: b"\x10"},
+        b"\x0a\x09INT-11I-B",
+        id="name-only",
+    ),
+    pytest.param(
+        {51409: _INT_11I_B_WARMING, 2: b"\x10"},
+        bytes.fromhex("13ffd1c800"),
+        id="truncated",
+    ),
+    pytest.param(
+        {51409: _INT_11I_B_WARMING, 2: b"\x10"},
+        bytes.fromhex("04ff020010"),
+        id="excluded-only",
+    ),
+    pytest.param(
+        {51409: _INT_11I_B_DOCKED, 51410: _INT_11I_B_DOCKED},
+        None,
+        id="ambiguous-merged",
+    ),
+    pytest.param(
+        {51409: _INT_11I_B_DOCKED, 51410: _INT_11I_B_DOCKED},
+        b"",
+        id="ambiguous-empty-raw",
+    ),
+]
 
 
 def _int_11i_b_service_info(
@@ -4293,6 +4320,14 @@ def _int_11i_b_service_info(
         ),
         pytest.param(_INT_11I_B_WARMING, 51409, 29, 91, 59, id="active"),
         pytest.param(_INT_11I_B_DOCKED, 51409, None, 91, 60, id="docked"),
+        pytest.param(
+            bytes.fromhex("896898613938c1a41d001e0000000000"),
+            51409,
+            29,
+            0,
+            0,
+            id="empty-batteries",
+        ),
     ],
 )
 def test_int_11i_b_detected_from_advertisement(
@@ -4302,7 +4337,7 @@ def test_int_11i_b_detected_from_advertisement(
     station_battery: int,
     probe_battery: int,
 ) -> None:
-    """Detect the probe and decode its captured advertisement readings."""
+    """Detect the probe and decode its advertisement readings."""
     parser = INKBIRDBluetoothDeviceData()
     service_info = _int_11i_b_service_info(payload, manufacturer_id)
     update = parser.update(service_info)
@@ -4466,13 +4501,44 @@ def test_int_11i_b_advertisement_shutdown_and_recovery() -> None:
 
 
 @pytest.mark.parametrize(
+    ("encoded_temperature", "temperature"),
+    [
+        pytest.param(b"\xf6\xff", -10, id="minimum"),
+        pytest.param(b"\xff\xff", -1, id="negative"),
+        pytest.param(b"\x00\x00", 0, id="zero"),
+        pytest.param(b"\x64\x00", 100, id="maximum"),
+    ],
+)
+def test_int_11i_b_advertisement_temperature_boundaries(
+    encoded_temperature: bytes, temperature: int
+) -> None:
+    """Keep signed whole-degree readings across the specified probe range."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
+    payload = _INT_11I_B_WARMING[:8] + encoded_temperature + _INT_11I_B_WARMING[10:]
+    service_info = _int_11i_b_service_info(payload)
+    update = parser.update(service_info)
+    assert (
+        update.entity_values[DeviceKey("temperature", None)].native_value == temperature
+    )
+    assert parser.poll_needed(service_info, None) is False
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         pytest.param(_INT_11I_B_WARMING[:-1], id="truncated"),
         pytest.param(_INT_11I_B_WARMING + b"\x00", id="oversized"),
         pytest.param(
             _INT_11I_B_WARMING[:8] + b"\x65\x00" + _INT_11I_B_WARMING[10:],
-            id="temperature",
+            id="above-maximum",
+        ),
+        pytest.param(
+            _INT_11I_B_WARMING[:8] + b"\xf5\xff" + _INT_11I_B_WARMING[10:],
+            id="below-minimum",
+        ),
+        pytest.param(
+            _INT_11I_B_WARMING[:8] + b"\xff\x7f" + _INT_11I_B_WARMING[10:],
+            id="unknown-sentinel",
         ),
         pytest.param(
             _INT_11I_B_WARMING[:11] + b"\xff" + _INT_11I_B_WARMING[12:],
@@ -4570,15 +4636,108 @@ def test_int_11i_b_identical_fresh_advertisement_avoids_poll() -> None:
         assert parser.poll_needed(service_info, None) is False
 
 
+@pytest.mark.parametrize(
+    "manufacturer_data",
+    [
+        pytest.param({51410: _INT_11I_B_WARMING}, id="cached-other-id"),
+        pytest.param({51409: _INT_11I_B_WARMING, 2: b"\x10"}, id="cached-excluded-id"),
+    ],
+)
+def test_int_11i_b_raw_advertisement_overrides_merged_data(
+    manufacturer_data: dict[int, bytes],
+) -> None:
+    """Update and polling both use the current raw frame, not the merged cache."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
+    service_info = _int_11i_b_service_info(raw=b"\x13\xff\xd1\xc8" + _INT_11I_B_DOCKED)
+    service_info.manufacturer_data.clear()
+    service_info.manufacturer_data.update(manufacturer_data)
+    update = parser.update(service_info)
+    assert update.entity_values[DeviceKey("temperature", None)].native_value is None
+    assert update.entity_values[DeviceKey("station_battery", None)].native_value == 91
+    assert update.entity_values[DeviceKey("probe_battery", None)].native_value == 60
+    assert parser.poll_needed(service_info, None) is False
+
+
+@pytest.mark.parametrize(
+    ("manufacturer_data", "raw"), _INT_11I_B_UNUSABLE_ADVERTISEMENTS
+)
 @pytest.mark.asyncio
-async def test_int_11i_b_advertisement_during_poll_takes_precedence() -> None:
+async def test_int_11i_b_unusable_advertisement_preserves_poll(
+    manufacturer_data: dict[int, bytes], raw: bytes | None
+) -> None:
+    """Missing or ambiguous readings cannot replay cached manufacturer data."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
+    parser.update(_int_11i_b_service_info(_INT_11I_B_WARMING, 51409))
+    mock_client = MagicMock(
+        read_gatt_char=AsyncMock(
+            side_effect=[b"\xff\x1e\x1d", b"\x59\x64\x00\x00\x00"]
+        ),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        await parser.async_poll(
+            BLEDevice(address="A4:C1:38:C9:88:65", name="INT-11I-B", details={})
+        )
+    service_info = _int_11i_b_service_info(_INT_11I_B_WARMING, 51409, raw=raw)
+    service_info.manufacturer_data.clear()
+    service_info.manufacturer_data.update(manufacturer_data)
+    update = parser.update(service_info)
+    assert update.entity_values[DeviceKey("temperature", None)].native_value == 26.3
+    assert update.entity_values[DeviceKey("station_battery", None)].native_value == 89
+    assert update.entity_values[DeviceKey("probe_battery", None)].native_value == 100
+    assert parser.poll_needed(service_info, None) is True
+
+
+@pytest.mark.parametrize(
+    ("manufacturer_data", "raw"), _INT_11I_B_UNUSABLE_ADVERTISEMENTS
+)
+@pytest.mark.asyncio
+async def test_int_11i_b_unusable_advertisement_during_poll_keeps_gatt(
+    manufacturer_data: dict[int, bytes], raw: bytes | None
+) -> None:
+    """Missing or ambiguous readings cannot supersede an in-flight GATT poll."""
+    parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
+    parser.update(_int_11i_b_service_info(_INT_11I_B_WARMING, 51409))
+    service_info = _int_11i_b_service_info(_INT_11I_B_WARMING, 51409, raw=raw)
+    service_info.manufacturer_data.clear()
+    service_info.manufacturer_data.update(manufacturer_data)
+    responses = iter([b"\xff\x1e\x1d", b"\x59\x64\x00\x00\x00"])
+
+    async def read_characteristic(_characteristic: object) -> bytes:
+        parser.update(service_info)
+        return next(responses)
+
+    mock_client = MagicMock(
+        read_gatt_char=AsyncMock(side_effect=read_characteristic),
+        disconnect=AsyncMock(),
+    )
+    with patch("inkbird_ble.parser.establish_connection", return_value=mock_client):
+        update = await parser.async_poll(
+            BLEDevice(address="A4:C1:38:C9:88:65", name="INT-11I-B", details={})
+        )
+    assert update.entity_values[DeviceKey("temperature", None)].native_value == 26.3
+    assert update.entity_values[DeviceKey("station_battery", None)].native_value == 89
+    assert update.entity_values[DeviceKey("probe_battery", None)].native_value == 100
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(None, id="decoded"),
+        pytest.param(b"\x13\xff\xd1\xc8" + _INT_11I_B_DOCKED, id="raw"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_int_11i_b_advertisement_during_poll_takes_precedence(
+    raw: bytes | None,
+) -> None:
     """A docking advertisement wins over an older GATT response in flight."""
     parser = INKBIRDBluetoothDeviceData(Model.INT_11I_B)
     parser.update(_int_11i_b_service_info(b""))
     responses = iter([b"\xff\x1e\x1d", b"\x59\x64\x00\x00\x00"])
 
     async def read_characteristic(_characteristic: object) -> bytes:
-        parser.update(_int_11i_b_service_info(_INT_11I_B_DOCKED))
+        parser.update(_int_11i_b_service_info(_INT_11I_B_DOCKED, 51409, raw=raw))
         return next(responses)
 
     mock_client = MagicMock(

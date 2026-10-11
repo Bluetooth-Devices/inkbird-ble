@@ -1072,12 +1072,14 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             # Device does not support parsing advertisement data
             return
         excludes = MANUFACTURER_DATA_ID_EXCLUDES if len(manufacturer_data) > 1 else None
-        changed_manufacturer_data = self.changed_manufacturer_data(
-            service_info, excludes
+        changed_manufacturer_data = (
+            self._int_11i_b_manufacturer_data(service_info)
+            if self._device_type is Model.INT_11I_B and service_info.raw
+            else self.changed_manufacturer_data(service_info, excludes)
         )
         if not changed_manufacturer_data:
             return
-        if service_info.raw is None and len(changed_manufacturer_data) > 1:
+        if not service_info.raw and len(changed_manufacturer_data) > 1:
             # Without raw advertisement bytes, multiple changed entries are
             # ambiguous (missed packets / new source) so we wait for the
             # next update. When raw is available, changed_manufacturer_data
@@ -1115,17 +1117,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             poll_needed = False
         elif self._device_type is Model.INT_11I_B:
             readings = None
-            manufacturer_data = service_info.manufacturer_data
-            if service_info.raw:
-                _, _, _, manufacturer_data, _ = parse_advertisement_data_bytes(
-                    service_info.raw
-                )
-            if len(service_info.manufacturer_data) > 1:
-                manufacturer_data = {
-                    key: value
-                    for key, value in manufacturer_data.items()
-                    if key not in MANUFACTURER_DATA_ID_EXCLUDES
-                }
+            manufacturer_data = self._int_11i_b_manufacturer_data(service_info)
             if manufacturer_data and (service_info.raw or len(manufacturer_data) == 1):
                 manufacturer_id = list(manufacturer_data)[-1]
                 data = (
@@ -1515,6 +1507,23 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
             name="Case Battery",
         )
 
+    def _int_11i_b_manufacturer_data(
+        self, service_info: BluetoothServiceInfoBleak
+    ) -> dict[int, bytes]:
+        """Select INT-11I-B data without replaying cached entries for raw packets."""
+        manufacturer_data = service_info.manufacturer_data
+        if service_info.raw:
+            _, _, _, manufacturer_data, _ = parse_advertisement_data_bytes(
+                service_info.raw
+            )
+        if len(service_info.manufacturer_data) > 1:
+            return {
+                key: value
+                for key, value in manufacturer_data.items()
+                if key not in MANUFACTURER_DATA_ID_EXCLUDES
+            }
+        return manufacturer_data
+
     def _decode_int_11i_b_advertisement(
         self,
         data: bytes,
@@ -1576,10 +1585,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         the temperature is a little-endian uint16 of Fahrenheit x 100, and the
         battery characteristic carries the base-station and probe percentages.
 
-        No temperature plausibility ceiling is applied — this is a food probe
-        whose legitimate range exceeds the room-sensor boundary-net limit (see
-        the IHT-2PB / BBQ probe handling). Each battery is reported only when
-        it is physically plausible, matching the INT-11P-B corrupt-read guard.
+        The two transports use different temperature units and battery ordering.
+        Each battery is reported only when it is physically plausible.
         """
         if self._poll_read_too_short(payload, INT_11I_B_TEMP_READ_LEN):
             return
