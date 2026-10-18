@@ -18,7 +18,7 @@ must supply it (notify-only devices).
 | `IAM-T2`                | Indoor air quality      | advertisement      | 17-byte payload + MAC prefix       | temperature, humidity, CO₂                                                     |
 | `IHT-2PB`               | 3-probe thermometer     | GATT notify        | local name `Ink@IHT-2PB#…`         | temperature × 3 probes                                                         |
 | `INT-11P-B`             | Connected BBQ probe     | GATT poll          | local name `int-11p-b`             | probe temperature, ambient temperature, probe battery, case battery            |
-| `INT-11I-B`             | Connected probe         | GATT poll          | local name `int-11i-b`             | temperature, station battery, probe battery                                    |
+| `INT-11I-B`             | Connected probe         | advertisement/GATT | local name `int-11i-b`             | temperature, station battery, probe battery                                    |
 | `iBBQ-1`                | BBQ probe (1 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 1                                                                |
 | `iBBQ-2`                | BBQ probe (2 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 2                                                                |
 | `iBBQ-4`                | BBQ probe (4 channel)   | advertisement      | name contains `xbbq` / `ibbq`      | temperature × 4                                                                |
@@ -38,6 +38,8 @@ must supply it (notify-only devices).
 - **GATT poll** — the device exposes a readable characteristic; call
   `async_poll(ble_device)` when `poll_needed()` returns true. `INT-11P-B`
   carries _no_ readings in its advertisement, so it must be polled.
+  `INT-11I-B` advertises whole-degree readings in its configured unit and uses
+  periodic polling to check that unit and provide higher-resolution temperature.
 - **GATT notify** — the device pushes readings over a notify characteristic;
   call `async_start(service_info, ble_device)` to subscribe. `IAM-T1` and
   `IHT-2PB` use this transport. `IHT-2PB` additionally requires two
@@ -45,6 +47,50 @@ must supply it (notify-only devices).
   `IDT-34c-B` advertises only a name (no manufacturer data), so it is matched
   by local name; its `ff01` characteristic streams all six probe temperatures
   in a single notification.
+
+### INT-11I-B readings
+
+Advertisements provide whole-degree temperatures in the configured Celsius or
+Fahrenheit unit; GATT reports Celsius rounded to one decimal place. Both
+transports update the same temperature, station battery, and probe battery
+sensors. The `0x7FFE` inactive
+probe marker clears temperature to `None` without clearing the battery readings.
+Newer advertisement readings take precedence over the corresponding GATT fields.
+
+Each poll subscribes to `ff02`, completes the app-level challenge/response
+handshake, and queries the unit with `01 04`. Reports `02 04 43` and `02 04 46`
+indicate Celsius and Fahrenheit respectively. The handshake sends `01 fb`,
+receives a six-byte challenge, and sends a timestamp/checksum response (`08 fc`);
+`02 fc 00` confirms acceptance. This exchange was verified against a phone
+capture and live INT-11I-B hardware. It does not require Bluetooth pairing or
+account credentials, or send temperature-unit or clock-setting commands.
+The timestamp/CRC response is also checked against a
+[documented protocol vector][int-11i-b-auth].
+
+Authentication is repeated for each connection. Unit discovery is best-effort
+and bounded to three seconds; a missing characteristic, rejected handshake, or
+timeout leaves numeric temperature on GATT. Advertisements still update
+batteries and inactive-probe status without a confirmed unit. The cached unit
+expires after 330 seconds and is rechecked at the existing poll interval. A unit
+change made in the phone app may therefore be misinterpreted until the next
+check or cache expiry; advertisements contain no known unit flag.
+
+The advertisement layout is based on captures while warming and docking a probe,
+with the unequal battery levels checked against the INKBIRD app. Offsets below
+include the two-byte manufacturer ID, which must be prepended to the 16-byte
+manufacturer payload returned by Bleak:
+
+| Byte offset | Field             | Encoding                                          |
+| ----------- | ----------------- | ------------------------------------------------- |
+| 10–11       | Probe temperature | Little-endian signed integer, whole degrees °C/°F |
+| 13          | Probe battery     | Percentage, 0–100                                 |
+| 15          | Station battery   | Percentage, 0–100                                 |
+
+With a confirmed unit, the decoder accepts the probe's specified
+[−10 to 100°C measurement range][int-11i-b-specs] after conversion, and the
+inactive marker. Other bytes remain uninterpreted. The GATT format is different:
+`ff01` always uses Fahrenheit hundredths and `2a19` lists station battery before
+probe battery.
 
 ## Not supported
 
@@ -60,3 +106,5 @@ open an issue with a BLE advertisement capture (e.g. from `bluetoothctl` or
 `nrfConnect`) so the model can be reverse-engineered.
 
 [#116]: https://github.com/Bluetooth-Devices/inkbird-ble/issues/116
+[int-11i-b-specs]: https://www.inkbird.com/products/bluetooth-mini-wireless-meat-thermometer-int-11i-b
+[int-11i-b-auth]: https://github.com/paul43210/inkbird-bw-ble/blob/8b44ee5a38a2e4ad5c5e84636208a640e343d2b0/docs/protocol.md#4-authentication-handshake
