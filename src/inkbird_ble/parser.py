@@ -15,6 +15,7 @@ import struct
 from dataclasses import dataclass
 from enum import Enum, StrEnum, auto
 from functools import lru_cache
+from time import time_ns
 from typing import TYPE_CHECKING, Any, ClassVar
 from uuid import UUID
 
@@ -185,11 +186,16 @@ INT_11P_B_PROBE_BATTERY_INDEX = 4
 INT_11P_B_CASE_BATTERY_INDEX = 5
 INT_11P_B_BATTERY_MASK = 0x7F
 
-# INT-11I-B advertisements contain whole-degree Celsius and both batteries.
+# INT-11I-B advertisements use the configured unit and contain both batteries.
 # GATT uses Fahrenheit hundredths on ff01 and station/probe percentages on 2a19.
 INT_11I_B_SERVICE_UUID = UUID("0000ff00-0000-1000-8000-00805f9b34fb")
 INT_11I_B_TEMP_CHARACTERISTIC_UUID = UUID("0000ff01-0000-1000-8000-00805f9b34fb")
+INT_11I_B_UNIT_CHARACTERISTIC_UUID = UUID("0000ff02-0000-1000-8000-00805f9b34fb")
 INT_11I_B_BATTERY_CHARACTERISTIC_UUID = UUID("00002a19-0000-1000-8000-00805f9b34fb")
+INT_11I_B_UNIT_QUERY = b"\x01\x04"
+INT_11I_B_UNIT_TIMEOUT = 3.0
+INT_11I_B_CHALLENGE_LENGTH = 6
+INT_11I_B_ERROR_RESPONSE = 0xFE
 INT_11I_B_TEMP_READ_LEN = 2
 INT_11I_B_FULL_READ_LEN = 4
 INT_11I_B_STATION_BATTERY_INDEX = 2
@@ -520,6 +526,43 @@ MANUFACTURER_DATA_ID_EXCLUDES = {2}
 MIN_POLL_INTERVAL = 330.0
 
 
+def _crc8(data: bytes, polynomial: int, initial: int) -> int:
+    """Calculate the non-reflected CRC used by the INT-11I-B handshake."""
+    value = initial
+    for byte in data:
+        value ^= byte
+        for _ in range(8):
+            value = ((value << 1) ^ (polynomial if value & 0x80 else 0)) & 0xFF
+    return value
+
+
+def _int_11i_b_authentication_response(challenge: bytes, timestamp_ms: int) -> bytes:
+    """Build the captured app handshake response without setting the clock."""
+    stamp = struct.pack("<HI", timestamp_ms % 1000, timestamp_ms // 1000)
+    checksums = bytes((_crc8(stamp, 0xD5, 0), _crc8(challenge, 0x9B, 0xFF)))
+    return b"\x08\xfc" + stamp + bytes((_crc8(stamp + checksums, 0xD5, 0),))
+
+
+async def _async_int_11i_b_request(
+    client: BleakClientWithServiceCache,
+    char: BleakGATTCharacteristic,
+    frames: asyncio.Queue[bytes],
+    command: bytes,
+) -> bytes | None:
+    """Send a control request and ignore unrelated or unsupported reports."""
+    await client.write_gatt_char(char, command, response=False)
+    while True:
+        frame = await frames.get()
+        if frame[0] == INT_11I_B_ERROR_RESPONSE:
+            _LOGGER.debug("INT-11I-B control request rejected: %s", frame.hex())
+            return None
+        if frame[0] != command[1]:
+            continue
+        if command == INT_11I_B_UNIT_QUERY and frame[1:] not in (b"C", b"F"):
+            continue
+        return frame[1:]
+
+
 async def async_connect_action(
     ble_device: BLEDevice,
     action: Callable[
@@ -655,6 +698,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         # Last time we got a full update from ADV data
         self._last_full_update = 0.0
         self._int_11i_b_advertisement_updates = 0
+        self._int_11i_b_temperature_updates = 0
+        self._int_11i_b_unit: Units | None = None
+        self._int_11i_b_unit_time = 0.0
         self._notify_task: asyncio.Task[None] | None = None
         self._running = True
         self._device_data = device_data.copy() if device_data else {}
@@ -1108,28 +1154,17 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         advertisements are therefore deduplicated before the parser runs) does
         not get marked as needing a connectable poll.
 
-        For poll-only models (``GATT_POLL_MODELS``) the advertisement carries no
-        readings, so its freshness is irrelevant; the gate is instead the time
-        since the last successful poll (``last_poll`` is the number of seconds
-        since the last poll, or ``None`` if the device has never been polled).
+        Poll-only models and the INT-11I-B need periodic connections regardless
+        of advertisement freshness. The INT-11I-B must recheck its configured
+        temperature unit, which is not included in advertisements. ``last_poll``
+        is the number of seconds since the last poll, or ``None`` initially.
         """
         if not self._supports_polling:
             poll_needed = False
-        elif self._device_type is Model.INT_11I_B:
-            readings = None
-            manufacturer_data = self._int_11i_b_manufacturer_data(service_info)
-            if manufacturer_data and (service_info.raw or len(manufacturer_data) == 1):
-                manufacturer_id = list(manufacturer_data)[-1]
-                data = (
-                    manufacturer_id.to_bytes(2, "little")
-                    + manufacturer_data[manufacturer_id]
-                )
-                readings = self._decode_int_11i_b_advertisement(data)
-            poll_needed = (last_poll is None or last_poll > MIN_POLL_INTERVAL) and (
-                readings is None
-                or monotonic_time_coarse() - service_info.time > MIN_POLL_INTERVAL
-            )
-        elif self._device_type in GATT_POLL_MODELS:
+        elif (
+            self._device_type in GATT_POLL_MODELS
+            or self._device_type is Model.INT_11I_B
+        ):
             poll_needed = last_poll is None or last_poll > MIN_POLL_INTERVAL
         else:
             poll_needed = (
@@ -1188,6 +1223,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         existing ``async_poll`` short-read guards still apply. The battery
         characteristic is optional: if it is absent we return temperature only.
         """
+        # Do not decode advertisements with the previous unit during a refresh.
+        self._int_11i_b_unit = None
         temp_char = service.get_characteristic(INT_11I_B_TEMP_CHARACTERISTIC_UUID)
         temperature = await client.read_gatt_char(temp_char)
         if len(temperature) < INT_11I_B_TEMP_READ_LEN:
@@ -1198,7 +1235,68 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         batt_char = service.get_characteristic(INT_11I_B_BATTERY_CHARACTERISTIC_UUID)
         if batt_char is not None:
             battery = await client.read_gatt_char(batt_char)
+        unit_char = service.get_characteristic(INT_11I_B_UNIT_CHARACTERISTIC_UUID)
+        if unit_char is not None:
+            self._int_11i_b_unit = await self._async_read_int_11i_b_unit(
+                client, unit_char
+            )
+        self._int_11i_b_unit_time = monotonic_time_coarse()
+        _LOGGER.debug("INT-11I-B temperature unit: %s", self._int_11i_b_unit)
         return bytes(temperature[:2]) + bytes(battery[:2])
+
+    async def _async_read_int_11i_b_unit(
+        self, client: BleakClientWithServiceCache, char: BleakGATTCharacteristic
+    ) -> Units | None:
+        """Authenticate and query the unit without changing device settings."""
+        frames: asyncio.Queue[bytes] = asyncio.Queue()
+        buffer = bytearray()
+        active = True
+
+        def receive_unit(_sender: BleakGATTCharacteristic, data: bytearray) -> None:
+            if not active:
+                return
+            buffer.extend(data)
+            # Length counts the type and body, but not the length byte itself.
+            while buffer:
+                length = buffer[0]
+                if not length:
+                    buffer.clear()
+                    return
+                if len(buffer) <= length:
+                    return
+                frames.put_nowait(bytes(buffer[1 : length + 1]))
+                del buffer[: length + 1]
+
+        try:
+            async with asyncio.timeout(INT_11I_B_UNIT_TIMEOUT):
+                # The shared poll connection disconnects and removes this subscription.
+                await client.start_notify(char, receive_unit)
+                challenge = await _async_int_11i_b_request(
+                    client, char, frames, b"\x01\xfb"
+                )
+                if challenge is None or len(challenge) != INT_11I_B_CHALLENGE_LENGTH:
+                    return None
+                response = _int_11i_b_authentication_response(
+                    challenge, time_ns() // 1_000_000
+                )
+                accepted = await _async_int_11i_b_request(
+                    client, char, frames, response
+                )
+                if accepted != b"\x00":
+                    return None
+                unit = await _async_int_11i_b_request(
+                    client, char, frames, INT_11I_B_UNIT_QUERY
+                )
+                if unit is None:
+                    return None
+                return Units.TEMP_CELSIUS if unit == b"C" else Units.TEMP_FAHRENHEIT
+        except (BleakError, TimeoutError) as err:
+            _LOGGER.debug(
+                "INT-11I-B unit query failed: %s", str(err) or type(err).__name__
+            )
+            return None
+        finally:
+            active = False
 
     def _poll_read_too_short(self, payload: bytes, minimum: int) -> bool:
         """Return ``True`` (and log) when a GATT poll read is undersized.
@@ -1221,13 +1319,8 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device for updates."""
         advertisement_updates = self._int_11i_b_advertisement_updates
+        temperature_updates = self._int_11i_b_temperature_updates
         payload = await self._async_connect_and_read(ble_device)
-        if (
-            self._device_type is Model.INT_11I_B
-            and self._int_11i_b_advertisement_updates != advertisement_updates
-        ):
-            # A newer advertisement supersedes the readings from this connection.
-            return self._finish_update()
         if self._device_type in EIGHTEEN_BYTE_SENSOR_MODELS:
             if not self._poll_read_too_short(payload, EIGHTEEN_BYTE_POLL_MIN_READ_LEN):
                 self._update_eighteen_byte_model_from_raw(payload[5:9], payload[9])
@@ -1239,7 +1332,11 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         elif self._device_type == Model.INT_11P_B:
             self._update_int_11p_b_from_raw(payload)
         elif self._device_type == Model.INT_11I_B:
-            self._update_int_11i_b_from_raw(payload)
+            if self._int_11i_b_advertisement_updates != advertisement_updates:
+                # Keep newer advertisement batteries even when its unit was unknown.
+                payload = payload[:INT_11I_B_TEMP_READ_LEN]
+            if self._int_11i_b_temperature_updates == temperature_updates:
+                self._update_int_11i_b_from_raw(payload)
         return self._finish_update()
 
     def _update_bbq_model(self, data: bytes, _msg_length: int) -> None:
@@ -1511,11 +1608,9 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         self, service_info: BluetoothServiceInfoBleak
     ) -> dict[int, bytes]:
         """Select INT-11I-B data without replaying cached entries for raw packets."""
-        manufacturer_data = service_info.manufacturer_data
-        if service_info.raw:
-            _, _, _, manufacturer_data, _ = parse_advertisement_data_bytes(
-                service_info.raw
-            )
+        if TYPE_CHECKING:
+            assert service_info.raw is not None
+        _, _, _, manufacturer_data, _ = parse_advertisement_data_bytes(service_info.raw)
         if len(service_info.manufacturer_data) > 1:
             return {
                 key: value
@@ -1527,40 +1622,50 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
     def _decode_int_11i_b_advertisement(
         self,
         data: bytes,
-    ) -> tuple[int | None, int, int] | None:
+    ) -> tuple[float | None, int, int] | None:
         """Decode a complete INT-11I-B advertisement, including manufacturer ID."""
         if len(data) != EIGHTEEN_BYTE_MESSAGE_LENGTH:
             return None
-        (temperature,) = MODEL_INFO[Model.INT_11I_B].unpacker(
+        (raw_temperature,) = MODEL_INFO[Model.INT_11I_B].unpacker(
             data[
                 INT_11I_B_ADV_TEMPERATURE_OFFSET : INT_11I_B_ADV_TEMPERATURE_OFFSET + 2
             ]
         )
-        if temperature != INT_11I_B_PROBE_NOT_CONNECTED and not (
-            INT_11I_B_MIN_TEMPERATURE_CELSIUS
-            <= temperature
-            <= INT_11I_B_MAX_TEMPERATURE_CELSIUS
-        ):
-            return None
+        temperature: float | None = (
+            None
+            if raw_temperature == INT_11I_B_PROBE_NOT_CONNECTED
+            else raw_temperature
+        )
+        if temperature is not None:
+            if self._int_11i_b_unit is Units.TEMP_FAHRENHEIT:
+                temperature = round((temperature - 32) * 5 / 9, 1)
+            if self._int_11i_b_unit is not None and not (
+                INT_11I_B_MIN_TEMPERATURE_CELSIUS
+                <= temperature
+                <= INT_11I_B_MAX_TEMPERATURE_CELSIUS
+            ):
+                return None
         station_battery = data[INT_11I_B_ADV_STATION_BATTERY_INDEX]
         probe_battery = data[INT_11I_B_ADV_PROBE_BATTERY_INDEX]
         if not self._is_battery_plausible(
             station_battery
         ) or not self._is_battery_plausible(probe_battery):
             return None
-        return (
-            None if temperature == INT_11I_B_PROBE_NOT_CONNECTED else temperature,
-            station_battery,
-            probe_battery,
-        )
+        return temperature, station_battery, probe_battery
 
     def _update_int_11i_b(self, data: bytes, _msg_length: int) -> None:
         """Update INT-11I-B readings from an advertisement."""
+        if monotonic_time_coarse() - self._int_11i_b_unit_time > MIN_POLL_INTERVAL:
+            self._int_11i_b_unit = None
         if (readings := self._decode_int_11i_b_advertisement(data)) is None:
             return
         temperature, station_battery, probe_battery = readings
         self._int_11i_b_advertisement_updates += 1
-        self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, temperature)
+        if temperature is None or self._int_11i_b_unit is not None:
+            self._int_11i_b_temperature_updates += 1
+            self.update_predefined_sensor(
+                SensorLibrary.TEMPERATURE__CELSIUS, temperature
+            )
         self._update_int_11i_b_batteries(station_battery, probe_battery)
 
     def _update_int_11i_b_batteries(
@@ -1585,7 +1690,7 @@ class INKBIRDBluetoothDeviceData(BluetoothData):
         the temperature is a little-endian uint16 of Fahrenheit x 100, and the
         battery characteristic carries the base-station and probe percentages.
 
-        The two transports use different temperature units and battery ordering.
+        Advertisements use the display unit and reverse the battery ordering.
         Each battery is reported only when it is physically plausible.
         """
         if self._poll_read_too_short(payload, INT_11I_B_TEMP_READ_LEN):
