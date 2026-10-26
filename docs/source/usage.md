@@ -33,7 +33,7 @@ data = INKBIRDBluetoothDeviceData()
 
 if data.supported(service_info):
     update = data.update(service_info)
-    print(data.device_type)   # e.g. Model.IBS_TH
+    print(data.device_type)  # e.g. Model.IBS_TH
     print(update.entity_values)
 ```
 
@@ -108,9 +108,11 @@ updates through callbacks:
 def on_update(update):
     print(update.entity_values)
 
+
 def on_device_data_changed(device_data):
     # e.g. the device's temperature unit changed
     print(device_data)
+
 
 data = INKBIRDBluetoothDeviceData(
     "IAM-T1",
